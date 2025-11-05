@@ -24,3 +24,5 @@ dist-ssr
 *.sw?
 # Generated upload artifacts
 server/uploads/
+# Generated processing outputs
+server/output/

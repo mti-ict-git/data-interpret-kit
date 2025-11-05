@@ -17,25 +17,40 @@ class ImageProcessor {
         try {
             // Lazy load face-api only when needed
             this.faceapi = require('@vladmandic/face-api');
-            // Ensure a TFJS backend is available even without tfjs-node
+
+            // Prefer tfjs-node (native) if available; fallback to pure tfjs cpu
+            this.tf = null;
+            this.tfBackend = 'none';
             try {
-                const tf = require('@tensorflow/tfjs');
-                if (tf.getBackend() !== 'cpu') {
-                    await tf.setBackend('cpu');
+                this.tf = require('@tensorflow/tfjs-node');
+                await this.tf.setBackend('tensorflow');
+                await this.tf.ready();
+                this.tfBackend = this.tf.getBackend();
+                console.log(`TFJS backend (node): ${this.tf.getBackend()}`);
+            } catch (errNode) {
+                console.warn('tfjs-node not available:', errNode.message);
+                try {
+                    this.tf = require('@tensorflow/tfjs');
+                    if (this.tf.getBackend() !== 'cpu') {
+                        await this.tf.setBackend('cpu');
+                    }
+                    await this.tf.ready();
+                    this.tfBackend = this.tf.getBackend();
+                    console.log(`TFJS backend (pure): ${this.tf.getBackend()}`);
+                } catch (errPure) {
+                    console.warn('TFJS not available or backend setup failed:', errPure.message);
                 }
-                await tf.ready();
-                console.log(`TFJS backend: ${tf.getBackend()}`);
-            } catch (err) {
-                console.warn('TFJS not available or backend setup failed:', err.message);
             }
 
-            // Try to monkey-patch canvas for Node
-            try {
-                const canvas = require('canvas');
-                const { Canvas, Image, ImageData } = canvas;
-                this.faceapi.env.monkeyPatch({ Canvas, Image, ImageData });
-            } catch (err) {
-                console.warn('Canvas not available, face detection may not work:', err.message);
+            // Try to monkey-patch canvas for Node when using pure tfjs
+            if (this.tfBackend !== 'tensorflow') {
+                try {
+                    const canvas = require('canvas');
+                    const { Canvas, Image, ImageData } = canvas;
+                    this.faceapi.env.monkeyPatch({ Canvas, Image, ImageData });
+                } catch (err) {
+                    console.warn('Canvas not available, pure-tfjs path may not work:', err.message);
+                }
             }
 
             // Load tiny face detector model from disk if present
@@ -145,17 +160,27 @@ class ImageProcessor {
 
             if (this.faceSupport.available) {
                 try {
-                    // Prepare tensor for face-api
+                    // Prepare input for face-api depending on tf backend
                     const buffer = await sharp(inputPath).toBuffer();
-                    const { createCanvas, Image } = require('canvas');
-                    const canvas = createCanvas(W, H);
-                    const ctx = canvas.getContext('2d');
-                    const image = new Image();
-                    image.src = buffer;
-                    ctx.drawImage(image, 0, 0);
-
+                    let detection;
                     const options = new this.faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.3 });
-                    const detection = await this.faceapi.detectSingleFace(canvas, options);
+
+                    if (this.tf && this.tfBackend === 'tensorflow' && this.tf.node && this.tf.node.decodeImage) {
+                        // Use tfjs-node to decode image to tensor, no canvas required
+                        const tensor = this.tf.node.decodeImage(buffer, 3);
+                        detection = await this.faceapi.detectSingleFace(tensor, options);
+                        tensor.dispose && tensor.dispose();
+                    } else {
+                        // Fallback: try canvas path (requires node-canvas)
+                        const { createCanvas, Image } = require('canvas');
+                        const canvas = createCanvas(W, H);
+                        const ctx = canvas.getContext('2d');
+                        const image = new Image();
+                        image.src = buffer;
+                        ctx.drawImage(image, 0, 0);
+                        detection = await this.faceapi.detectSingleFace(canvas, options);
+                    }
+
                     if (detection && detection.box) {
                         const box = detection.box;
                         const faceW = box.width;
