@@ -6,6 +6,8 @@ const helmet = require('helmet');
 const compression = require('compression');
 const path = require('path');
 const fs = require('fs-extra');
+const archiver = require('archiver');
+const crypto = require('crypto');
 const { getProcessingResults } = require('./python_integration');
 const ImageProcessor = require('./imageProcessor');
 const JobManager = require('./jobManager');
@@ -112,20 +114,32 @@ app.post('/api/upload', upload.array('files', 10), async (req, res) => {
             });
         }
 
-        const uploadedFiles = req.files.map(file => ({
-            originalName: file.originalname,
-            filename: file.filename,
-            path: file.path,
-            size: file.size,
-            mimetype: file.mimetype
-        }));
+        // Create a unique session folder for this upload so subsequent processing only handles these files
+        const sessionId = crypto.randomUUID();
+        const sessionUploadDir = path.join(uploadDir, sessionId);
+        await fs.ensureDir(sessionUploadDir);
+
+        // Move just the newly uploaded files into the session folder
+        const uploadedFiles = [];
+        for (const file of req.files) {
+            const newPath = path.join(sessionUploadDir, file.filename);
+            await fs.move(file.path, newPath, { overwrite: true });
+            uploadedFiles.push({
+                originalName: file.originalname,
+                filename: file.filename,
+                path: newPath,
+                size: file.size,
+                mimetype: file.mimetype
+            });
+        }
 
         res.json({
             success: true,
             message: 'Files uploaded successfully',
             files: uploadedFiles,
             processingMode: processingMode,
-            uploadPath: uploadDir
+            uploadPath: sessionUploadDir,
+            sessionId: sessionId
         });
 
     } catch (error) {
@@ -278,6 +292,41 @@ app.get('/api/download/:sessionId/:filename', (req, res) => {
         res.status(500).json({
             success: false,
             error: 'File download failed',
+            details: error.message
+        });
+    }
+});
+
+// Download ZIP of job output (frontend expects /api/process/download/:id)
+app.get('/api/process/download/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const sessionOutputDir = path.join(outputDir, id);
+
+        if (!await fs.pathExists(sessionOutputDir)) {
+            return res.status(404).json({
+                success: false,
+                error: 'Job output not found'
+            });
+        }
+
+        res.setHeader('Content-Type', 'application/zip');
+        res.setHeader('Content-Disposition', `attachment; filename=job-${id}-results.zip`);
+
+        const archive = archiver('zip', { zlib: { level: 9 } });
+        archive.on('error', (err) => {
+            console.error('Archive error:', err);
+            res.status(500).end();
+        });
+
+        archive.pipe(res);
+        archive.directory(sessionOutputDir, false);
+        await archive.finalize();
+    } catch (error) {
+        console.error('ZIP download error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to generate ZIP',
             details: error.message
         });
     }
@@ -501,7 +550,7 @@ app.use((error, req, res, next) => {
     });
 });
 
-// 404 handler
+// 404 handler moved below download route
 app.use('*', (req, res) => {
     res.status(404).json({
         success: false,
@@ -549,4 +598,39 @@ process.on('SIGINT', async () => {
     console.log('SIGINT received, shutting down gracefully');
     await database.disconnect();
     process.exit(0);
+});
+
+// Download ZIP of job output (frontend expects /api/process/download/:id)
+app.get('/api/process/download/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const sessionOutputDir = path.join(outputDir, id);
+
+        if (!await fs.pathExists(sessionOutputDir)) {
+            return res.status(404).json({
+                success: false,
+                error: 'Job output not found'
+            });
+        }
+
+        res.setHeader('Content-Type', 'application/zip');
+        res.setHeader('Content-Disposition', `attachment; filename=job-${id}-results.zip`);
+
+        const archive = archiver('zip', { zlib: { level: 9 } });
+        archive.on('error', (err) => {
+            console.error('Archive error:', err);
+            res.status(500).end();
+        });
+
+        archive.pipe(res);
+        archive.directory(sessionOutputDir, false);
+        await archive.finalize();
+    } catch (error) {
+        console.error('ZIP download error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to generate ZIP',
+            details: error.message
+        });
+    }
 });

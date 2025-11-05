@@ -17,6 +17,18 @@ class ImageProcessor {
         try {
             // Lazy load face-api only when needed
             this.faceapi = require('@vladmandic/face-api');
+            // Ensure a TFJS backend is available even without tfjs-node
+            try {
+                const tf = require('@tensorflow/tfjs');
+                if (tf.getBackend() !== 'cpu') {
+                    await tf.setBackend('cpu');
+                }
+                await tf.ready();
+                console.log(`TFJS backend: ${tf.getBackend()}`);
+            } catch (err) {
+                console.warn('TFJS not available or backend setup failed:', err.message);
+            }
+
             // Try to monkey-patch canvas for Node
             try {
                 const canvas = require('canvas');
@@ -26,17 +38,28 @@ class ImageProcessor {
                 console.warn('Canvas not available, face detection may not work:', err.message);
             }
 
-            // Load tiny face detector model from server/models if present
-            const modelsCandidate = path.join(__dirname, '..', 'models');
-            try {
-                const stat = await fs.stat(modelsCandidate);
-                if (stat.isDirectory()) {
-                    await this.faceapi.nets.tinyFaceDetector.loadFromDisk(modelsCandidate);
-                    this.faceSupport = { available: true, modelDir: modelsCandidate };
-                    console.log(`Face-API models loaded from ${modelsCandidate}`);
+            // Load tiny face detector model from disk if present
+            const modelsCandidateServer = path.join(__dirname, '..', 'models'); // server/models
+            const modelsCandidatePublic = path.join(__dirname, '..', '..', 'public', 'models'); // public/models at project root
+            let loadedDir = null;
+            for (const candidate of [modelsCandidateServer, modelsCandidatePublic]) {
+                try {
+                    const stat = await fs.stat(candidate);
+                    if (stat.isDirectory()) {
+                        await this.faceapi.nets.tinyFaceDetector.loadFromDisk(candidate);
+                        loadedDir = candidate;
+                        break;
+                    }
+                } catch (_) {
+                    // ignore and try next candidate
                 }
-            } catch (e) {
-                console.warn('Face-API model directory not found. Using heuristic cropping.');
+            }
+
+            if (loadedDir) {
+                this.faceSupport = { available: true, modelDir: loadedDir };
+                console.log(`Face-API models loaded from ${loadedDir}`);
+            } else {
+                console.warn('Face-API model directory not found in server/models or public/models. Using heuristic cropping.');
                 this.faceSupport = { available: false, modelDir: null };
             }
 

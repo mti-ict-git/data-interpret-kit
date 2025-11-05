@@ -1,0 +1,2 @@
+Card No #[Max 10],Card Name [Max 50],Staff No [Max 15],Department [Max 50],Access Level [Max 3],Company [Max 50],NRIC/Pass [Max 50],Remark  [Max 100],Email [Max 50],Status [True/False],Lift Access Level [Max 3],Vehicle No [Max 15],ExpiryDate dd/MM/yyyy HH:mm:ss  [Blank for non expired card],Address [Max 50],Unit No [Max 15],Emergency Card [True/False],Face Access Level [Max 3]
+,Agnes Monica Sombolinggi,MTI250175,Maintenance,4,Merdeka Tsingsan Indonesia,,,,TRUE,,Senior Messhall,,,,,
