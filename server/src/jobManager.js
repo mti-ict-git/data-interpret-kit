@@ -8,6 +8,17 @@ class JobManager {
         console.log('JobManager initialized with SQL Server backend');
     }
 
+    // Helper: parse radius from description e.g. "Processing job with 3 files (15% radius)"
+    parseRadiusFromDescription(desc) {
+        if (!desc || typeof desc !== 'string') return 50; // fallback
+        const match = desc.match(/\((\d{1,3})%\s*radius\)/i);
+        if (match && match[1]) {
+            const val = parseInt(match[1], 10);
+            if (!isNaN(val)) return val;
+        }
+        return 50; // default if not found
+    }
+
     async createJob(type, radiusPercentage, files = [], userId = null) {
         try {
             const jobId = uuidv4();
@@ -85,6 +96,7 @@ class JobManager {
             }
 
             const batch = result.recordset[0];
+            const parsedRadius = this.parseRadiusFromDescription(batch.Description || batch.description);
             return {
                 id: batch.id,
                 type: 'ID_CARD_PROCESSING', // Default type
@@ -93,7 +105,7 @@ class JobManager {
                 completedAt: batch.completedAt ? batch.completedAt.toISOString() : null,
                 processedFiles: batch.processedFiles || 0,
                 totalFiles: batch.totalFiles || 0,
-                radiusPercentage: 50, // Default value, could be stored in description
+                radiusPercentage: parsedRadius, // parsed from description
                 errorMessage: null,
                 resultData: null
             };
@@ -131,7 +143,7 @@ class JobManager {
                 completedAt: batch.completedAt ? batch.completedAt.toISOString() : null,
                 processedFiles: batch.processedFiles || 0,
                 totalFiles: batch.totalFiles || 0,
-                radiusPercentage: 50,
+                radiusPercentage: this.parseRadiusFromDescription(batch.Description || batch.description),
                 errorMessage: null,
                 resultData: null
             }));
@@ -303,7 +315,7 @@ class JobManager {
                 completedAt: batch.completedAt ? batch.completedAt.toISOString() : null,
                 processedFiles: batch.processedFiles || 0,
                 totalFiles: batch.totalFiles || 0,
-                radiusPercentage: 50,
+                radiusPercentage: this.parseRadiusFromDescription(batch.Description || batch.description),
                 errorMessage: null,
                 resultData: null
             }));
@@ -372,36 +384,40 @@ class JobManager {
         }
     }
 
-    // Helper methods to map between our status values and database status values
     mapDatabaseStatus(dbStatus) {
-        const statusMap = {
-            'draft': 'PENDING',
-            'PENDING': 'PENDING',
-            'PROCESSING': 'PROCESSING',
-            'processing': 'PROCESSING',
-            'COMPLETED': 'COMPLETED',
-            'completed': 'COMPLETED',
-            'FAILED': 'FAILED',
-            'failed': 'FAILED',
-            'error': 'FAILED',
-            'CANCELLED': 'CANCELLED',
-            'cancelled': 'CANCELLED'
-        };
-        return statusMap[dbStatus] || 'PENDING';
+        switch (dbStatus) {
+            case 'PENDING':
+                return 'PENDING';
+            case 'PROCESSING':
+                return 'PROCESSING';
+            case 'COMPLETED':
+                return 'COMPLETED';
+            case 'FAILED':
+                return 'FAILED';
+            case 'CANCELLED':
+                return 'FAILED';
+            default:
+                return 'PENDING';
+        }
     }
 
     mapToDatabaseStatus(appStatus) {
-        const statusMap = {
-            'PENDING': 'PENDING',
-            'PROCESSING': 'PROCESSING',
-            'COMPLETED': 'COMPLETED',
-            'FAILED': 'FAILED',
-            'CANCELLED': 'CANCELLED'
-        };
-        return statusMap[appStatus] || 'PENDING';
+        switch (appStatus) {
+            case 'PENDING':
+                return 'PENDING';
+            case 'PROCESSING':
+                return 'PROCESSING';
+            case 'COMPLETED':
+                return 'COMPLETED';
+            case 'FAILED':
+                return 'FAILED';
+            case 'CANCELLED':
+                return 'CANCELLED';
+            default:
+                return 'PENDING';
+        }
     }
 
-    // Clear all jobs (for testing purposes) - Use with caution!
     async clearAllJobs() {
         try {
             const query = `DELETE FROM ProcessingBatches`;
