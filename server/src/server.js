@@ -12,6 +12,7 @@ const { getProcessingResults } = require('./python_integration');
 const ImageProcessor = require('./imageProcessor');
 const JobManager = require('./jobManager');
 const database = require('./database');
+const { registerJobToVault } = require('./vaultRegistrar');
 const imageProcessor = new ImageProcessor();
 let jobManager; // Will be initialized after database connection
 
@@ -452,6 +453,29 @@ app.delete('/api/jobs/:id', async (req, res) => {
             error: 'Failed to delete job',
             details: error.message
         });
+    }
+});
+
+// Register Vault cards for a completed job
+// Body: { jobId, endpointBaseUrl? }
+app.post('/api/vault/register', async (req, res) => {
+    try {
+        const { jobId, endpointBaseUrl } = req.body || {};
+        if (!jobId) {
+            return res.status(400).json({ success: false, error: 'jobId is required' });
+        }
+        // Confirm job exists
+        const job = await jobManager.getJob(jobId);
+        if (!job) {
+            return res.status(404).json({ success: false, error: 'Job not found' });
+        }
+        const sessionOutputDir = path.join(outputDir, jobId);
+        const endpoint = endpointBaseUrl || process.env.VAULT_API_BASE || 'http://10.60.10.6/Vaultsite/APIwebservice.asmx';
+        const result = await registerJobToVault({ jobId, outputDir: sessionOutputDir, endpointBaseUrl: endpoint });
+        res.json({ success: true, ...result });
+    } catch (error) {
+        console.error('Error registering Vault cards:', error);
+        res.status(500).json({ success: false, error: 'Failed to register Vault cards', details: error.message });
     }
 });
 

@@ -33,7 +33,7 @@ const RegisterVault: React.FC = () => {
         const data = await response.json();
         if (!data.success) throw new Error(data.error || "Failed to fetch jobs");
         setJobs(data.jobs || []);
-      } catch (err: any) {
+      } catch (err) {
         console.error("Error fetching jobs:", err);
         toast({ title: "Error", description: "Failed to load jobs", variant: "destructive" });
       } finally {
@@ -62,8 +62,9 @@ const RegisterVault: React.FC = () => {
       const data = await res.json();
       setUploadPath(data.uploadPath || data.path || null);
       toast({ title: "Files uploaded", description: "Stored for Vault registration." });
-    } catch (err: any) {
-      toast({ title: "Upload error", description: err.message, variant: "destructive" });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      toast({ title: "Upload error", description: message, variant: "destructive" });
     } finally {
       setFilesUploading(false);
     }
@@ -86,8 +87,9 @@ const RegisterVault: React.FC = () => {
       const data = await res.json();
       setUploadPath(data.uploadPath || data.path || null);
       toast({ title: "CSV uploaded", description: "Stored for Vault registration." });
-    } catch (err: any) {
-      toast({ title: "Upload error", description: err.message, variant: "destructive" });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      toast({ title: "Upload error", description: message, variant: "destructive" });
     } finally {
       setCsvUploading(false);
     }
@@ -115,10 +117,12 @@ const RegisterVault: React.FC = () => {
       } else {
         throw new Error(data.error || "Registration failed");
       }
-    } catch (err: any) {
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
       toast({
-        title: "Vault registration pending",
-        description: err.message || "The backend endpoint will be added later. UI selection saved.",
+        title: "Vault registration error",
+        description: message || "Registration failed.",
+        variant: "destructive",
       });
     }
   };
