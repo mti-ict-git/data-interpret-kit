@@ -3,7 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Button } from '@/components/ui/button';
-import { AlertCircle, CheckCircle, Clock, Download, X, RefreshCw } from 'lucide-react';
+import { AlertCircle, CheckCircle, Clock, Download, X, RefreshCw, Database } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export interface Job {
@@ -30,6 +30,7 @@ interface JobStatusCardProps {
   onCancel?: (jobId: string) => void;
   onRetry?: (jobId: string) => void;
   onDelete?: (jobId: string) => void;
+  onRegisterVault?: (jobId: string) => void;
 }
 
 const getStatusIcon = (status: Job['status']) => {
@@ -74,7 +75,7 @@ const getProgressValue = (job: Job) => {
   return 0;
 };
 
-export function JobStatusCard({ job, onDownload, onCancel, onRetry, onDelete }: JobStatusCardProps) {
+export function JobStatusCard({ job, onDownload, onCancel, onRetry, onDelete, onRegisterVault }: JobStatusCardProps) {
   const progressValue = getProgressValue(job);
   const canCancel = job.status === 'PENDING' || job.status === 'PROCESSING';
   const canDownload = job.status === 'COMPLETED';
@@ -156,7 +157,7 @@ export function JobStatusCard({ job, onDownload, onCancel, onRetry, onDelete }: 
         )}
 
         {/* Action Buttons */}
-        <div className="flex justify-end space-x-2 pt-2">
+        <div className="flex justify-end flex-wrap gap-2 pt-2">
           {canCancel && onCancel && (
             <Button variant="outline" size="sm" onClick={() => onCancel(job.id)}>
               <X className="h-4 w-4 mr-1" />
@@ -173,6 +174,12 @@ export function JobStatusCard({ job, onDownload, onCancel, onRetry, onDelete }: 
             <Button size="sm" onClick={() => onDownload(job.id)}>
               <Download className="h-4 w-4 mr-1" />
               Download
+            </Button>
+          )}
+          {canDownload && onRegisterVault && (
+            <Button variant="secondary" size="sm" onClick={() => onRegisterVault(job.id)}>
+              <Database className="h-4 w-4 mr-1" />
+              Register Vault
             </Button>
           )}
           {onDelete && (job.status === 'COMPLETED' || job.status === 'FAILED') && (

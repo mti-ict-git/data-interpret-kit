@@ -1,13 +1,12 @@
 import { Dashboard } from "@/components/Dashboard";
+import AppLayout from "@/components/AppLayout";
 
 const Index = () => {
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="container mx-auto px-4 py-8">
-        <Dashboard />
-      </div>
-    </div>
+    <AppLayout title="ID Card Processor">
+      <Dashboard />
+    </AppLayout>
   );
 };
 

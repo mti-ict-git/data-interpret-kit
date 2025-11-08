@@ -1,4 +1,4 @@
-const { v4: uuidv4 } = require('uuid');
+const { randomUUID } = require('crypto');
 const database = require('./database');
 const sql = require('mssql');
 
@@ -21,7 +21,7 @@ class JobManager {
 
     async createJob(type, radiusPercentage, files = [], userId = null) {
         try {
-            const jobId = uuidv4();
+            const jobId = randomUUID();
             const createdAt = new Date();
             
             // Create a new ProcessingBatch record

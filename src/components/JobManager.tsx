@@ -9,6 +9,7 @@ import { Separator } from '@/components/ui/separator';
 import { RefreshCw, Search, Filter } from 'lucide-react';
 import { JobStatusCard, Job } from './JobStatusCard';
 import { useToast } from '@/hooks/use-toast';
+import { useNavigate } from 'react-router-dom';
 
 interface JobManagerProps {
   onRefresh?: () => void;
@@ -20,6 +21,7 @@ export function JobManager({ onRefresh }: JobManagerProps) {
   const [filter, setFilter] = useState<'all' | 'pending' | 'processing' | 'completed' | 'failed'>('all');
   const [searchTerm, setSearchTerm] = useState('');
   const { toast } = useToast();
+  const navigate = useNavigate();
 
   const fetchJobs = async () => {
     setLoading(true);
@@ -162,6 +164,11 @@ export function JobManager({ onRefresh }: JobManagerProps) {
     }
   };
 
+  const handleRegisterVault = (jobId: string) => {
+    // Navigate to Register Vault page with selected jobId
+    navigate(`/register-vault?jobId=${encodeURIComponent(jobId)}`);
+  };
+
   const filteredJobs = jobs.filter(job => {
     const matchesFilter = filter === 'all' || job.status.toLowerCase() === filter;
     const matchesSearch = job.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -275,6 +282,7 @@ export function JobManager({ onRefresh }: JobManagerProps) {
                   onCancel={handleCancel}
                   onRetry={handleRetry}
                   onDelete={handleDelete}
+                  onRegisterVault={handleRegisterVault}
                 />
               ))
             )}

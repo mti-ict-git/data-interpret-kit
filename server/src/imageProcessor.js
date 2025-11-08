@@ -6,22 +6,30 @@ const createCsvWriter = require('csv-writer').createObjectCsvWriter;
 
 class ImageProcessor {
     constructor() {
-        this.faceApiInitialized = false;
+        this.faceApiInitialized = false; // detector initialization flag
+        this.tf = null;
+        this.tfBackend = 'none';
+        // BlazeFace (preferred)
+        this.blazeModel = null;
+        this.blazeAvailable = false;
+        // face-api (fallback)
         this.faceapi = null;
-        this.faceSupport = { available: false, modelDir: null };
+        this.faceSupport = { available: false, modelDir: null, modelType: null };
     }
 
     async initializeFaceAPI() {
         if (this.faceApiInitialized) return;
 
         try {
-            // Lazy load face-api only when needed
-            this.faceapi = require('@vladmandic/face-api');
-
             // Prefer tfjs-node (native) if available; fallback to pure tfjs cpu
-            this.tf = null;
-            this.tfBackend = 'none';
+            // Also ensure libtensorflow DLLs are discoverable on Windows for tfjs-node
             try {
+                try {
+                    const depsLib = path.join(__dirname, '..', 'node_modules', '@tensorflow', 'tfjs-node', 'deps', 'lib');
+                    if (process.platform === 'win32') {
+                        process.env.PATH = `${depsLib};${process.env.PATH || ''}`;
+                    }
+                } catch (_) { /* ignore path setup errors */ }
                 this.tf = require('@tensorflow/tfjs-node');
                 await this.tf.setBackend('tensorflow');
                 await this.tf.ready();
@@ -42,48 +50,87 @@ class ImageProcessor {
                 }
             }
 
-            // Try to monkey-patch canvas for Node when using pure tfjs
-            if (this.tfBackend !== 'tensorflow') {
-                try {
-                    const canvas = require('canvas');
-                    const { Canvas, Image, ImageData } = canvas;
-                    this.faceapi.env.monkeyPatch({ Canvas, Image, ImageData });
-                } catch (err) {
-                    console.warn('Canvas not available, pure-tfjs path may not work:', err.message);
-                }
+            // Initialize BlazeFace (preferred detector)
+            try {
+                const blazeface = await import('@tensorflow-models/blazeface');
+                this.blazeModel = await blazeface.load();
+                this.blazeAvailable = true;
+                console.log('BlazeFace model loaded successfully');
+            } catch (err) {
+                console.warn('BlazeFace not available:', err.message);
+                this.blazeAvailable = false;
             }
 
-            // Load tiny face detector model from disk if present
-            const modelsCandidateServer = path.join(__dirname, '..', 'models'); // server/models
-            const modelsCandidatePublic = path.join(__dirname, '..', '..', 'public', 'models'); // public/models at project root
-            let loadedDir = null;
-            for (const candidate of [modelsCandidateServer, modelsCandidatePublic]) {
-                try {
-                    const stat = await fs.stat(candidate);
-                    if (stat.isDirectory()) {
-                        await this.faceapi.nets.tinyFaceDetector.loadFromDisk(candidate);
-                        loadedDir = candidate;
-                        break;
+            // Try to initialize face-api (fallback) without aborting if missing
+            try {
+                this.faceapi = require('@vladmandic/face-api');
+                // Try to monkey-patch canvas for Node when using pure tfjs
+                if (this.tfBackend !== 'tensorflow') {
+                    try {
+                        const canvas = require('canvas');
+                        const { Canvas, Image, ImageData } = canvas;
+                        this.faceapi.env.monkeyPatch({ Canvas, Image, ImageData });
+                    } catch (err) {
+                        console.warn('Canvas not available, pure-tfjs path may not work:', err.message);
                     }
-                } catch (_) {
-                    // ignore and try next candidate
                 }
-            }
 
-            if (loadedDir) {
-                this.faceSupport = { available: true, modelDir: loadedDir };
-                console.log(`Face-API models loaded from ${loadedDir}`);
-            } else {
-                console.warn('Face-API model directory not found in server/models or public/models. Using heuristic cropping.');
-                this.faceSupport = { available: false, modelDir: null };
+                // Attempt to load face-api models from disk
+                const modelsCandidateServer = path.resolve(__dirname, '..', 'models'); // server/models
+                const modelsCandidatePublic = path.resolve(__dirname, '..', '..', 'public', 'models'); // public/models at project root
+                let loadedDir = null;
+                let modelType = null; // 'tiny' | 'ssd'
+                for (const candidate of [modelsCandidateServer, modelsCandidatePublic]) {
+                    try {
+                        console.log(`Checking Face-API models at: ${candidate}`);
+                        const stat = await fs.stat(candidate);
+                        console.log(`  exists: ${stat.isDirectory()}`);
+                        if (stat.isDirectory()) {
+                            try {
+                                await this.faceapi.nets.tinyFaceDetector.loadFromDisk(candidate);
+                                loadedDir = candidate;
+                                modelType = 'tiny';
+                                console.log(`Loaded TinyFaceDetector from: ${candidate}`);
+                                break;
+                            } catch (loadErr) {
+                                console.warn(`Failed to load models from ${candidate}: ${loadErr && loadErr.message || loadErr}`);
+                                // Try SSD Mobilenet as fallback
+                                try {
+                                    await this.faceapi.nets.ssdMobilenetv1.loadFromDisk(candidate);
+                                    loadedDir = candidate;
+                                    modelType = 'ssd';
+                                    console.log(`Loaded SsdMobilenetV1 from: ${candidate}`);
+                                    break;
+                                } catch (loadErr2) {
+                                    console.warn(`Failed to load SSD models from ${candidate}: ${loadErr2 && loadErr2.message || loadErr2}`);
+                                }
+                            }
+                        }
+                    } catch (e) {
+                        console.log(`  not found: ${candidate}`);
+                        // ignore and try next candidate
+                    }
+                }
+
+                if (loadedDir) {
+                    this.faceSupport = { available: true, modelDir: loadedDir, modelType };
+                    console.log(`Face-API models loaded from ${loadedDir} (model=${modelType})`);
+                } else {
+                    console.warn('Face-API model directory not found in server/models or public/models. Face-API fallback disabled.');
+                    this.faceSupport = { available: false, modelDir: null, modelType: null };
+                }
+            } catch (error) {
+                console.warn('Face-API not available, continuing without it:', error.message);
+                this.faceSupport = { available: false, modelDir: null, modelType: null };
             }
 
             this.faceApiInitialized = true;
-            console.log('Image processor initialized');
+            console.log(`Image processor initialized: tfjs backend=${this.tfBackend}, blaze=${this.blazeAvailable}, faceapi=${this.faceSupport.available}`);
         } catch (error) {
-            console.warn('Face-API not available, using heuristic cropping:', error.message);
+            console.warn('Detector initialization failed, using heuristic cropping:', error.message);
             this.faceApiInitialized = false;
-            this.faceSupport = { available: false, modelDir: null };
+            this.blazeAvailable = false;
+            this.faceSupport = { available: false, modelDir: null, modelType: null };
         }
     }
 
@@ -154,16 +201,72 @@ class ImageProcessor {
             const H = meta.height || 0;
             if (!W || !H) throw new Error('Unable to read image metadata');
 
-            const desiredRatio = Math.min(Math.max(faceAreaPercentage, 10), 90) / 100; // clamp 10%-90%
+            const desiredRatio = Math.min(Math.max(faceAreaPercentage, 5), 100) / 100; // clamp 5%-100%
 
             let cropX, cropY, cropSide;
+            let usedDetector = null;
 
-            if (this.faceSupport.available) {
+            // Try BlazeFace first (preferred)
+            if (this.blazeAvailable) {
+                try {
+                    const buffer = await sharp(inputPath).toBuffer();
+                    let tensor;
+                    if (this.tf && this.tfBackend === 'tensorflow' && this.tf.node && this.tf.node.decodeImage) {
+                        tensor = this.tf.node.decodeImage(buffer, 3);
+                    } else {
+                        const { data, info } = await sharp(inputPath).raw().toBuffer({ resolveWithObject: true });
+                        const u8 = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+                        tensor = this.tf.tensor3d(u8, [info.height, info.width, info.channels], 'int32');
+                        tensor = this.tf.cast(tensor, 'float32');
+                    }
+
+                    const faces = await this.blazeModel.estimateFaces(tensor, false);
+                    tensor.dispose && tensor.dispose();
+
+                    if (faces && faces.length > 0) {
+                        // pick largest face by area
+                        let best = faces[0];
+                        let bestArea = 0;
+                        for (const f of faces) {
+                            const [x1, y1] = f.topLeft;
+                            const [x2, y2] = f.bottomRight;
+                            const area = Math.max(0, x2 - x1) * Math.max(0, y2 - y1);
+                            if (area > bestArea) { bestArea = area; best = f; }
+                        }
+                        const [x1, y1] = best.topLeft;
+                        const [x2, y2] = best.bottomRight;
+                        const box = { x: x1, y: y1, width: x2 - x1, height: y2 - y1 };
+
+                        const faceW = box.width;
+                        const faceH = box.height;
+                        const faceArea = faceW * faceH;
+                        cropSide = Math.ceil(Math.sqrt(faceArea / desiredRatio));
+                        cropSide = Math.max(cropSide, Math.max(faceW, faceH));
+                        cropSide = Math.min(cropSide, Math.min(W, H));
+
+                        const cx = box.x + faceW / 2;
+                        const cy = box.y + faceH / 2;
+                        cropX = Math.round(cx - cropSide / 2);
+                        cropY = Math.round(cy - cropSide / 2);
+                        cropX = Math.max(0, Math.min(cropX, W - cropSide));
+                        cropY = Math.max(0, Math.min(cropY, H - cropSide));
+                        usedDetector = 'BlazeFace';
+                    }
+                } catch (e) {
+                    console.warn('BlazeFace detection error; trying face-api fallback:', e.message);
+                }
+            }
+
+            // If BlazeFace did not produce a crop, try face-api fallback
+            if (cropX === undefined && this.faceSupport.available) {
                 try {
                     // Prepare input for face-api depending on tf backend
                     const buffer = await sharp(inputPath).toBuffer();
                     let detection;
-                    const options = new this.faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.3 });
+                    const useSSD = this.faceSupport.modelType === 'ssd';
+                    const options = useSSD
+                        ? new this.faceapi.SsdMobilenetv1Options({ minConfidence: 0.3 })
+                        : new this.faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.3 });
 
                     if (this.tf && this.tfBackend === 'tensorflow' && this.tf.node && this.tf.node.decodeImage) {
                         // Use tfjs-node to decode image to tensor, no canvas required
@@ -171,14 +274,16 @@ class ImageProcessor {
                         detection = await this.faceapi.detectSingleFace(tensor, options);
                         tensor.dispose && tensor.dispose();
                     } else {
-                        // Fallback: try canvas path (requires node-canvas)
-                        const { createCanvas, Image } = require('canvas');
-                        const canvas = createCanvas(W, H);
-                        const ctx = canvas.getContext('2d');
-                        const image = new Image();
-                        image.src = buffer;
-                        ctx.drawImage(image, 0, 0);
-                        detection = await this.faceapi.detectSingleFace(canvas, options);
+                        // Fallback without node-canvas: decode pixels via sharp.raw -> tf.Tensor3D
+                        if (!this.tf) throw new Error('TFJS not initialized');
+                        const { data, info } = await sharp(inputPath).raw().toBuffer({ resolveWithObject: true });
+                        // Create tensor from raw uint8 pixels [H, W, C] then cast to float32
+                        const u8 = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+                        let tensor = this.tf.tensor3d(u8, [info.height, info.width, info.channels], 'int32');
+                        tensor = this.tf.cast(tensor, 'float32');
+                        // face-api supports tf.Tensor inputs
+                        detection = await this.faceapi.detectSingleFace(tensor, options);
+                        tensor.dispose && tensor.dispose();
                     }
 
                     if (detection && detection.box) {
@@ -198,6 +303,7 @@ class ImageProcessor {
                         // Clamp
                         cropX = Math.max(0, Math.min(cropX, W - cropSide));
                         cropY = Math.max(0, Math.min(cropY, H - cropSide));
+                        usedDetector = `Face-API (${this.faceSupport.modelType || 'tiny'})`;
                     } else {
                         // No detection found; fall back to heuristic by leaving cropX undefined
                     }
@@ -228,7 +334,10 @@ class ImageProcessor {
                 .toBuffer();
             await sharp(bufferOut).toFile(outputPath);
 
-            return { success: true, message: this.faceSupport.available ? `Cropped with face detection target ${(desiredRatio * 100).toFixed(0)}% face area` : `Cropped using heuristic (target ${(desiredRatio * 100).toFixed(0)}% face area) and resized to 400x400` };
+            const msg = usedDetector
+                ? `Cropped with ${usedDetector} target ${(desiredRatio * 100).toFixed(0)}% face area`
+                : `Cropped using heuristic (target ${(desiredRatio * 100).toFixed(0)}% face area) and resized to 400x400`;
+            return { success: true, message: msg };
         } catch (error) {
             return { success: false, message: error.message };
         }

@@ -315,14 +315,14 @@ export function FileUpload({ onUploadComplete, onUploadStart }: FileUploadProps)
             </Select>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="radius-percentage">Radius Percentage: {radiusPercentage}%</Label>
               <Input
                 id="radius-percentage"
                 type="range"
                 min="5"
-                max="50"
+                max="100"
                 value={radiusPercentage}
                 onChange={(e) => setRadiusPercentage(Number(e.target.value))}
                 className="w-full"
@@ -344,12 +344,12 @@ export function FileUpload({ onUploadComplete, onUploadStart }: FileUploadProps)
         <Separator />
 
         {/* File Drop Zone */}
-        <div
-          className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
-            dragActive 
-              ? 'border-primary bg-primary/5' 
-              : 'border-muted-foreground/25 hover:border-muted-foreground/50'
-          }`}
+          <div
+            className={`border-2 border-dashed rounded-lg p-4 sm:p-8 text-center transition-colors ${
+              dragActive 
+                ? 'border-primary bg-primary/5' 
+                : 'border-muted-foreground/25 hover:border-muted-foreground/50'
+              }`}
           onDragEnter={handleDrag}
           onDragLeave={handleDrag}
           onDragOver={handleDrag}
