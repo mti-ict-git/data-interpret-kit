@@ -362,7 +362,27 @@ class ImageProcessor {
                         console.log(`Skipping file '${filename}' because columns do not match expected format.`);
                         continue;
                     }
-                    combinedRows.push(...rows);
+                    // Augment rows with VehicleNo and AccessLevel based on MessHall per business rules
+                    const augmented = rows.map(r => {
+                        const mess = (typeof r['MessHall'] === 'string' ? r['MessHall'] : '').toLowerCase().trim();
+                        let vehicleNo;
+                        let accessLevel;
+                        if (mess === 'makarti') {
+                            vehicleNo = 'Makarti MessHall';
+                            accessLevel = 2;
+                        } else if (mess === 'labota') {
+                            vehicleNo = 'Labota Messhall';
+                            accessLevel = 1;
+                        } else if (mess === '' || mess === 'no access!!') {
+                            vehicleNo = 'Local Hire / No Access!!';
+                            accessLevel = '';
+                        } else {
+                            vehicleNo = 'Local Hire / No Access!!';
+                            accessLevel = '';
+                        }
+                        return { ...r, VehicleNo: vehicleNo, AccessLevel: accessLevel };
+                    });
+                    combinedRows.push(...augmented);
                 }
             }
 
@@ -413,9 +433,29 @@ class ImageProcessor {
             const toLower = (s) => (typeof s === 'string' ? s.toLowerCase() : '');
 
             const records = rows.map(row => {
-                const mess = toLower(row['MessHall']);
-                const accessLevel = mess.includes('senior') ? 4 : mess.includes('junior') ? 2 : 13;
-                const vehicleNo = mess.includes('senior') ? 'Senior Messhall' : mess.includes('junior') ? 'Junior Messhall' : 'No Access!!';
+                const messRaw = row['MessHall'] || '';
+                const mess = toLower(messRaw).trim();
+                // New business rules:
+                // - Vehicle No: "Makarti MessHall" if MessHall is Makarti
+                //               "Labota Messhall" if MessHall is Labota
+                //               "Local Hire / No Access!!" if MessHall is "No Access!!" or empty
+                // - Access Level (group selection): 2 for Makarti, 1 for Labota, blank for No Access/empty
+                let vehicleNo;
+                let accessLevel;
+                if (mess === 'makarti') {
+                    vehicleNo = 'Makarti MessHall';
+                    accessLevel = 2;
+                } else if (mess === 'labota') {
+                    vehicleNo = 'Labota Messhall';
+                    accessLevel = 1;
+                } else if (mess === '' || mess === 'no access!!') {
+                    vehicleNo = 'Local Hire / No Access!!';
+                    accessLevel = '';
+                } else {
+                    // Fallback: treat unknown values as no access
+                    vehicleNo = 'Local Hire / No Access!!';
+                    accessLevel = '';
+                }
                 return {
                     CardNo: '',
                     CardName: row['Name'] || '',

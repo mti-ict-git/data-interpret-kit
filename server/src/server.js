@@ -12,7 +12,8 @@ const { getProcessingResults } = require('./python_integration');
 const ImageProcessor = require('./imageProcessor');
 const JobManager = require('./jobManager');
 const database = require('./database');
-const { registerJobToVault } = require('./vaultRegistrar');
+const { registerJobToVault, previewJobToVault, registerCsvPathToVault, previewCsvPathToVault } = require('./vaultRegistrar');
+const { photoExists } = require('./vaultRegistrar');
 const imageProcessor = new ImageProcessor();
 let jobManager; // Will be initialized after database connection
 
@@ -68,11 +69,12 @@ const upload = multer({
         files: 10 // Maximum 10 files
     },
     fileFilter: (req, file, cb) => {
-        // Accept images and Excel files
+        // Accept images, Excel, and CSV files
         const allowedTypes = [
             'image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/bmp',
             'application/vnd.ms-excel',
-            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'text/csv'
         ];
         
         if (allowedTypes.includes(file.mimetype)) {
@@ -460,7 +462,7 @@ app.delete('/api/jobs/:id', async (req, res) => {
 // Body: { jobId, endpointBaseUrl? }
 app.post('/api/vault/register', async (req, res) => {
     try {
-        const { jobId, endpointBaseUrl } = req.body || {};
+        const { jobId, endpointBaseUrl, dryRun, overrides } = req.body || {};
         if (!jobId) {
             return res.status(400).json({ success: false, error: 'jobId is required' });
         }
@@ -471,11 +473,116 @@ app.post('/api/vault/register', async (req, res) => {
         }
         const sessionOutputDir = path.join(outputDir, jobId);
         const endpoint = endpointBaseUrl || process.env.VAULT_API_BASE || 'http://10.60.10.6/Vaultsite/APIwebservice.asmx';
-        const result = await registerJobToVault({ jobId, outputDir: sessionOutputDir, endpointBaseUrl: endpoint });
+        if (dryRun) {
+            const preview = await previewJobToVault({ jobId, outputDir: sessionOutputDir });
+            return res.json({ success: true, ...preview, endpointBaseUrl: endpoint });
+        }
+        const result = await registerJobToVault({ jobId, outputDir: sessionOutputDir, endpointBaseUrl: endpoint, overrides });
         res.json({ success: true, ...result });
     } catch (error) {
         console.error('Error registering Vault cards:', error);
         res.status(500).json({ success: false, error: 'Failed to register Vault cards', details: error.message });
+    }
+});
+
+// Preview Vault registration from a direct CSV path
+app.post('/api/vault/preview-csv', async (req, res) => {
+    try {
+        const { csvPath } = req.body || {};
+        if (!csvPath) {
+            return res.status(400).json({ success: false, error: 'csvPath is required' });
+        }
+        const preview = previewCsvPathToVault({ csvPath });
+        const endpoint = process.env.VAULT_API_BASE || 'http://10.60.10.6/Vaultsite/APIwebservice.asmx';
+        res.json({ success: true, ...preview, endpointBaseUrl: endpoint });
+    } catch (error) {
+        console.error('Error previewing CSV for Vault:', error);
+        res.status(500).json({ success: false, error: 'Failed to preview CSV', details: error.message });
+    }
+});
+
+// Register Vault cards from a direct CSV path
+app.post('/api/vault/register-csv', async (req, res) => {
+    try {
+        const { csvPath, endpointBaseUrl, overrides } = req.body || {};
+        if (!csvPath) {
+            return res.status(400).json({ success: false, error: 'csvPath is required' });
+        }
+        const endpoint = endpointBaseUrl || process.env.VAULT_API_BASE || 'http://10.60.10.6/Vaultsite/APIwebservice.asmx';
+        const result = await registerCsvPathToVault({ csvPath, endpointBaseUrl: endpoint, overrides });
+        res.json({ success: true, ...result });
+    } catch (error) {
+        console.error('Error registering Vault cards from CSV:', error);
+        res.status(500).json({ success: false, error: 'Failed to register Vault cards from CSV', details: error.message });
+    }
+});
+
+// Photo existence check for preview edits
+app.post('/api/vault/photo-check', async (req, res) => {
+    try {
+        const { jobId, rows } = req.body || {};
+        if (!jobId || !Array.isArray(rows)) {
+            return res.status(400).json({ success: false, error: 'jobId and rows[] are required' });
+        }
+        const job = await jobManager.getJob(jobId);
+        if (!job) {
+            return res.status(404).json({ success: false, error: 'Job not found' });
+        }
+        const sessionOutputDir = path.join(outputDir, jobId);
+        const results = rows.map(({ index, cardNo, staffNo }) => ({
+            index,
+            cardNo,
+            hasPhoto: photoExists(sessionOutputDir, (cardNo || '').trim(), (staffNo || '').trim())
+        }));
+        res.json({ success: true, results });
+    } catch (error) {
+        console.error('Error checking photos:', error);
+        res.status(500).json({ success: false, error: 'Failed to check photos', details: error.message });
+    }
+});
+
+// Photo existence check for CSV preview
+app.post('/api/vault/photo-check-csv', async (req, res) => {
+    try {
+        const { csvPath, rows } = req.body || {};
+        if (!csvPath || !Array.isArray(rows)) {
+            return res.status(400).json({ success: false, error: 'csvPath and rows[] are required' });
+        }
+        const sessionOutputDir = path.dirname(csvPath);
+        const results = rows.map(({ index, cardNo, staffNo }) => ({
+            index,
+            cardNo,
+            hasPhoto: photoExists(sessionOutputDir, (cardNo || '').trim(), (staffNo || '').trim())
+        }));
+        res.json({ success: true, results });
+    } catch (error) {
+        console.error('Error checking photos (CSV):', error);
+        res.status(500).json({ success: false, error: 'Failed to check photos for CSV', details: error.message });
+    }
+});
+
+// Retrieve registration logs for a job
+app.get('/api/vault/logs/:jobId', async (req, res) => {
+    try {
+        const { jobId } = req.params;
+        if (!jobId) return res.status(400).json({ success: false, error: 'jobId is required' });
+        const sessionOutputDir = path.join(outputDir, jobId);
+        if (!await fs.pathExists(sessionOutputDir)) {
+            return res.status(404).json({ success: false, error: 'Job output not found' });
+        }
+        const textPath = path.join(sessionOutputDir, 'vault-registration.log');
+        const jsonlPath = path.join(sessionOutputDir, 'vault-registration-log.jsonl');
+        const textLog = (await fs.pathExists(textPath)) ? await fs.readFile(textPath, 'utf8') : '';
+        const jsonlRaw = (await fs.pathExists(jsonlPath)) ? await fs.readFile(jsonlPath, 'utf8') : '';
+        const jsonLog = [];
+        for (const line of jsonlRaw.split(/\r?\n/)) {
+            if (!line.trim()) continue;
+            try { jsonLog.push(JSON.parse(line)); } catch {}
+        }
+        res.json({ success: true, jobId, textLog, jsonLog });
+    } catch (error) {
+        console.error('Error retrieving logs:', error);
+        res.status(500).json({ success: false, error: 'Failed to retrieve logs', details: error.message });
     }
 });
 
