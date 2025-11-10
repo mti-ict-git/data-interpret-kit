@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import AppLayout from "@/components/AppLayout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -57,8 +57,27 @@ type UploadResponse = {
   error?: string;
 };
 
+// CardDB row type used by the Download Card menu
+type CardDbRow = {
+  CardNo?: string;
+  Name?: string;
+  StaffNo?: string;
+  VehicleNo?: string;
+  DueDay?: number | string;
+  ExpiryDate?: string;
+  Status?: string;
+  Department?: string;
+  AccessLevel?: string;
+  LiftAccessLevel?: string;
+  FaceAccessLevel?: string;
+  ActiveStatus?: string | boolean;
+  [key: string]: unknown;
+};
+
 const UpdateVaultCard: React.FC = () => {
   const { toast } = useToast();
+  // Feature flag: hide single-card update from DB section for now
+  const showSingleDbUpdate = false;
   const [previewing, setPreviewing] = useState(false);
   const [previewSummary, setPreviewSummary] = useState<VaultRegistrationSummary | null>(null);
   const [registering, setRegistering] = useState(false);
@@ -73,6 +92,15 @@ const UpdateVaultCard: React.FC = () => {
   const [uploadedUpdatePath, setUploadedUpdatePath] = useState<string | undefined>();
   const [uploadingUpdate, setUploadingUpdate] = useState(false);
   const [csvUpdatePathInput, setCsvUpdatePathInput] = useState<string>("");
+
+  // Download Card Menu (CardDB) state
+  const [cardDbRows, setCardDbRows] = useState<CardDbRow[]>([]);
+  const [cardDbLoading, setCardDbLoading] = useState<boolean>(false);
+  const [cardDbSearch, setCardDbSearch] = useState<string>("");
+  const [cardDbLimit, setCardDbLimit] = useState<number>(200);
+  // Table is hard-coded server-side; remove client control
+  const [cardDbSelected, setCardDbSelected] = useState<Record<string, boolean>>({});
+  const [cardDbRowStatus, setCardDbRowStatus] = useState<Record<string, { state: 'idle' | 'executing' | 'success' | 'failed', code?: string, message?: string }>>({});
 
   // Single-card update from DB section state
   const [dbCardNo, setDbCardNo] = useState<string>("");
@@ -173,6 +201,84 @@ const UpdateVaultCard: React.FC = () => {
     } finally {
       setUploadingUpdate(false);
     }
+  };
+
+  // Fetch CardDB users
+  const fetchCardDb = async () => {
+    try {
+      setCardDbLoading(true);
+      const qs = new URLSearchParams();
+      if (cardDbSearch.trim()) qs.set('search', cardDbSearch.trim());
+      if (cardDbLimit) qs.set('limit', String(cardDbLimit));
+      // Table is fixed to carddb on server; no client-provided table
+      const res = await fetch(`/api/vault/carddb?${qs.toString()}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const rows: CardDbRow[] = Array.isArray(data.rows) ? data.rows : [];
+      setCardDbRows(rows);
+      // Reset selection & statuses for new dataset
+      setCardDbSelected({});
+      setCardDbRowStatus({});
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      toast({ title: 'Load CardDB failed', description: message, variant: 'destructive' });
+    } finally {
+      setCardDbLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    // Initial fetch without filters
+    fetchCardDb();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const visibleSelectedCount = useMemo(() => {
+    return cardDbRows.reduce((acc, r) => {
+      const cn = (r.CardNo ?? '').toString();
+      return acc + (cn && cardDbSelected[cn] ? 1 : 0);
+    }, 0);
+  }, [cardDbRows, cardDbSelected]);
+
+  const toggleSelectAllVisible = (checked: boolean) => {
+    const next: Record<string, boolean> = { ...cardDbSelected };
+    cardDbRows.forEach((r) => {
+      const cn = (r.CardNo ?? '').toString();
+      if (cn) next[cn] = checked;
+    });
+    setCardDbSelected(next);
+  };
+
+  const handleDownloadSelectedFromCardDb = async () => {
+    // Collect selected card numbers
+    const selectedCardNos = cardDbRows
+      .map((r) => (r.CardNo ?? '').toString())
+      .filter((cn) => cn && cardDbSelected[cn]);
+    if (selectedCardNos.length === 0) {
+      toast({ title: 'No users selected', description: 'Select at least one user from CardDB to download their card.' });
+      return;
+    }
+    let okCount = 0;
+    for (const cn of selectedCardNos) {
+      try {
+        setCardDbRowStatus((prev) => ({ ...prev, [cn]: { state: 'executing' } }));
+        const res = await fetch('/api/vault/update-card-db', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cardNo: cn }) // server sets Download=true and uses DB profile
+        });
+        const data = await res.json();
+        const ok = !!data.success;
+        const code = data.code ?? '-';
+        const message = (data.message ?? '').trim() || (ok ? 'OK' : 'Failed');
+        setCardDbRowStatus((prev) => ({ ...prev, [cn]: { state: ok ? 'success' : 'failed', code, message } }));
+        if (ok) okCount += 1;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        setCardDbRowStatus((prev) => ({ ...prev, [cn]: { state: 'failed', message } }));
+      }
+    }
+    toast({ title: 'Download triggered', description: `Requested download for ${selectedCardNos.length} card(s). Success: ${okCount}` });
   };
 
   const handlePreviewUploadedUpdateCsv = async () => {
@@ -370,6 +476,117 @@ const UpdateVaultCard: React.FC = () => {
           Update existing Vault cards by uploading an Excel/CSV file following the UpdateCard schema. You can preview rows, edit Card No and DownloadCard, re-check photos, and execute updates.
         </p>
 
+        {/* Download Card Menu - CardDB */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Download Card Menu (CardDB)</CardTitle>
+            <CardDescription>
+              Filter and select users directly from CardDB, then trigger a Vault update with Download=true for each selected card.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Search</label>
+                <Input placeholder="Name, Card No, Staff No, Department" value={cardDbSearch} onChange={(e) => setCardDbSearch(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Limit</label>
+                <Input type="number" value={cardDbLimit} onChange={(e) => setCardDbLimit(Number(e.target.value) || 0)} />
+              </div>
+              {/* Table is hard-coded on server; removed from UI */}
+              <div className="flex items-end gap-2">
+                <Button variant="outline" onClick={fetchCardDb} disabled={cardDbLoading} className="w-full sm:w-auto">
+                  {cardDbLoading ? 'Loading…' : 'Refresh'}
+                </Button>
+                <Button onClick={fetchCardDb} disabled={cardDbLoading} className="w-full sm:w-auto">
+                  {cardDbLoading ? 'Searching…' : 'Search'}
+                </Button>
+              </div>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr className="text-left border-b">
+                    <th className="py-2 pr-4">
+                      <div className="flex items-center gap-2">
+                        <input type="checkbox" checked={visibleSelectedCount === cardDbRows.length && cardDbRows.length > 0} onChange={(e) => toggleSelectAllVisible(e.target.checked)} />
+                        <span className="text-xs text-muted-foreground">Select all</span>
+                      </div>
+                    </th>
+                    <th className="py-2 pr-4">Card No</th>
+                    <th className="py-2 pr-4">Name</th>
+                    <th className="py-2 pr-4">Staff No</th>
+                    <th className="py-2 pr-4">Vehicle No</th>
+                    <th className="py-2 pr-4">Due Day</th>
+                    <th className="py-2 pr-4">Expiry Date</th>
+                    <th className="py-2 pr-4">Status</th>
+                    <th className="py-2 pr-4">Department</th>
+                    <th className="py-2 pr-4">Access</th>
+                    <th className="py-2 pr-4">Lift</th>
+                    <th className="py-2 pr-4">Face</th>
+                    <th className="py-2 pr-4">Download Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {cardDbRows.length === 0 ? (
+                    <tr>
+                      <td colSpan={13} className="py-3 text-muted-foreground">No users found</td>
+                    </tr>
+                  ) : (
+                    cardDbRows.map((r, idx) => {
+                      const cn = (r.CardNo ?? '').toString();
+                      const isChecked = cn && cardDbSelected[cn];
+                      const st = cardDbRowStatus[cn]?.state ?? 'idle';
+                      const code = cardDbRowStatus[cn]?.code ?? '-';
+                      const message = cardDbRowStatus[cn]?.message;
+                      const color = st === 'success' ? 'text-green-600' : st === 'failed' ? 'text-red-600' : st === 'executing' ? 'text-blue-600' : 'text-muted-foreground';
+                      return (
+                        <tr key={`${cn}-${idx}`} className="border-b">
+                          <td className="py-2 pr-4">
+                            <input
+                              type="checkbox"
+                              checked={!!isChecked}
+                              onChange={(e) => setCardDbSelected((prev) => ({ ...prev, [cn]: e.target.checked }))}
+                            />
+                          </td>
+                          <td className="py-2 pr-4 font-mono">{cn || '-'}</td>
+                          <td className="py-2 pr-4">{(r.Name ?? '') as string || '-'}</td>
+                          <td className="py-2 pr-4">{(r.StaffNo ?? '') as string || '-'}</td>
+                          <td className="py-2 pr-4">{(r.VehicleNo ?? '') as string || '-'}</td>
+                          <td className="py-2 pr-4">{r.DueDay !== undefined && r.DueDay !== null ? String(r.DueDay) : '-'}</td>
+                          <td className="py-2 pr-4">{(r.ExpiryDate ?? '') as string || '-'}</td>
+                          <td className="py-2 pr-4">{(r.Status ?? '') as string || '-'}</td>
+                          <td className="py-2 pr-4">{(r.Department ?? '') as string || '-'}</td>
+                          <td className="py-2 pr-4">{(r.AccessLevel ?? '') as string || '-'}</td>
+                          <td className="py-2 pr-4">{(r.LiftAccessLevel ?? '') as string || '-'}</td>
+                          <td className="py-2 pr-4">{(r.FaceAccessLevel ?? '') as string || '-'}</td>
+                          <td className="py-2 pr-4">
+                            <div className={`text-xs ${color} max-w-xs whitespace-normal break-words`}>
+                              {st === 'idle' && 'Idle'}
+                              {st === 'executing' && 'Executing…'}
+                              {st === 'success' && `Success (code ${code})`}
+                              {st === 'failed' && `Failed${message ? `: ${message}` : ''} (code ${code})`}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+            <div className="flex items-center justify-between">
+              <div className="text-sm text-muted-foreground">Selected: {visibleSelectedCount}</div>
+              <div className="flex items-center gap-2">
+                <Button onClick={handleDownloadSelectedFromCardDb} disabled={visibleSelectedCount === 0 || cardDbLoading}>
+                  Download selected cards
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
         <Card>
           <CardHeader>
             <CardTitle>Update Existing Cards (CSV/Excel)</CardTitle>
@@ -446,12 +663,13 @@ const UpdateVaultCard: React.FC = () => {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Update Single Card from Database</CardTitle>
-            <CardDescription>Fetch card profile from DataDBEnt.carddb and update to Vault with optional overrides.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
+        {showSingleDbUpdate && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Update Single Card from Database</CardTitle>
+              <CardDescription>Fetch card profile from DataDBEnt.carddb and update to Vault with optional overrides.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <label className="text-sm font-medium">Card No</label>
@@ -541,13 +759,14 @@ const UpdateVaultCard: React.FC = () => {
                 <Input placeholder="1433" value={dbPort} onChange={(e) => setDbPort(e.target.value)} />
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              <Button onClick={handleUpdateFromDb} disabled={dbUpdating || !dbCardNo.trim()}>
-                {dbUpdating ? 'Updating…' : 'Update from DB'}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+              <div className="flex items-center gap-2">
+                <Button onClick={handleUpdateFromDb} disabled={dbUpdating || !dbCardNo.trim()}>
+                  {dbUpdating ? 'Updating…' : 'Update from DB'}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {previewSummary && (
           <Card>

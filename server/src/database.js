@@ -1,13 +1,14 @@
 const sql = require('mssql');
 require('dotenv').config();
 
-// Database configuration
+// Application database configuration (VaultIDCardProcessor)
+// Use APPDB_* so DataDBEnt (DATADB_*) can be reserved for routes that need the original vault DB
 const config = {
-    user: process.env.DATADB_USER,
-    password: process.env.DATADB_PASSWORD,
-    server: process.env.DATADB_SERVER,
-    database: process.env.DATADB_NAME,
-    port: parseInt(process.env.DATADB_PORT) || 1433,
+    user: process.env.APPDB_USER || process.env.DATADB_USER,
+    password: process.env.APPDB_PASSWORD || process.env.DATADB_PASSWORD,
+    server: process.env.APPDB_SERVER || process.env.DATADB_SERVER,
+    database: process.env.APPDB_NAME || process.env.DATADB_NAME,
+    port: parseInt(process.env.APPDB_PORT || process.env.DATADB_PORT) || 1433,
     options: {
         encrypt: false, // Set to true if using Azure
         trustServerCertificate: true, // Use for self-signed certificates

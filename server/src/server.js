@@ -647,6 +647,152 @@ app.post('/api/vault/photo-check-csv', async (req, res) => {
     }
 });
 
+// List CardDB users with optional filters for search and limit
+app.get('/api/vault/carddb', async (req, res) => {
+    const { q, search, limit, server: dbServer, dbName, dbUser, dbPass, dbPort } = req.query;
+    const sTerm = (search || q || '').toString().trim();
+    const topN = Math.max(1, Math.min(1000, parseInt((limit || '200').toString(), 10) || 200));
+    try {
+        // Use dedicated CARDDB_* env vars for CardDB (user retrieval) and keep DATADB_* for app DB
+        const config = {
+            user: (dbUser || process.env.CARDDB_USER || process.env.DATADB_USER),
+            password: (dbPass || process.env.CARDDB_PASSWORD || process.env.DATADB_PASSWORD),
+            server: (dbServer || process.env.CARDDB_SERVER || process.env.DATADB_SERVER),
+            database: (dbName || process.env.CARDDB_NAME || process.env.DATADB_NAME || 'DataDBEnt'),
+            port: (dbPort ? parseInt(dbPort, 10) : (parseInt(process.env.CARDDB_PORT, 10) || parseInt(process.env.DATADB_PORT, 10) || 1433)),
+            options: { trustServerCertificate: true, enableArithAbort: true, encrypt: false },
+            pool: { max: 10, min: 0, idleTimeoutMillis: 30000 }
+        };
+        // Log resolved connection (mask sensitive values)
+        console.log(`[CardDB] Connecting server=${config.server} db=${config.database} user=${config.user} port=${config.port}`);
+        await sql.connect(config);
+        const request = new sql.Request();
+        request.input('topN', sql.Int, topN);
+        const envTbl = (() => {
+            const schema = (process.env.CARDDB_SCHEMA || '').trim();
+            const name = (process.env.CARDDB_TABLE || '').trim();
+            if (schema && name) return `${schema}.${name}`;
+            if (name) return name;
+            return null;
+        })();
+        // Hard-code to carddb; ignore client-provided table. Allow env override for schema-qualified name.
+        const baseTbl = (envTbl || 'carddb');
+        const activeFilter = "([Del_State] = 0 OR [Del_State] = 'false')";
+        const bracketize = (name) => name.split('.').map(part => `[${part}]`).join('.');
+        const parseSchemaTable = (name) => {
+            const parts = String(name).split('.');
+            if (parts.length === 2) return { schema: parts[0], table: parts[1] };
+            return { schema: null, table: parts[0] };
+        };
+        const getColumns = async (tblName) => {
+            const { schema, table } = parseSchemaTable(tblName);
+            const where = schema
+                ? `TABLE_SCHEMA = @schema AND TABLE_NAME = @table`
+                : `TABLE_NAME = @table`;
+            const req = new sql.Request();
+            if (schema) req.input('schema', sql.NVarChar, schema);
+            req.input('table', sql.NVarChar, table);
+            const rs = await req.query(`SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE ${where}`);
+            const cols = new Set();
+            let resolvedSchema = schema;
+            for (const r of (rs.recordset || [])) {
+                cols.add(r.COLUMN_NAME);
+                resolvedSchema = resolvedSchema || r.TABLE_SCHEMA;
+            }
+            return { schema: resolvedSchema, table, columns: cols };
+        };
+        const buildQuery = async (tblName) => {
+            const info = await getColumns(tblName);
+            if (!info.schema) {
+                // schema not found, treat as missing table
+                throw new Error(`Table not found: ${tblName}`);
+            }
+            const qualified = bracketize(`${info.schema}.${info.table}`);
+            const hasDel = info.columns.has('Del_State');
+            const searchable = ['Name','CardNo','cardno','StaffNo','staffno'].filter(c => info.columns.has(c));
+            const whereTerms = [];
+            if (sTerm && searchable.length > 0) {
+                request.input('pattern', sql.NVarChar, `%${sTerm}%`);
+                // Cast to NVARCHAR to avoid type conversion errors on numeric/date columns
+                const likeParts = searchable.map(c => `CAST([${c}] AS NVARCHAR(4000)) LIKE @pattern`);
+                whereTerms.push(`(${likeParts.join(' OR ')})`);
+            }
+            if (hasDel) whereTerms.push(activeFilter);
+            const where = whereTerms.length > 0 ? `WHERE ${whereTerms.join(' AND ')}` : '';
+            return `SELECT TOP (@topN) * FROM ${qualified} ${where}`;
+        };
+
+        let result;
+        try {
+            const query = await buildQuery(baseTbl);
+            result = await request.query(query);
+        } catch (primaryErr) {
+            // Fallback attempts: common casing or dbo-qualified table name
+            const tryQuery = async (tblName) => {
+                const altQuery = await buildQuery(tblName);
+                return request.query(altQuery);
+            };
+            const candidatesRaw = [baseTbl, envTbl, 'carddb', 'CardDB', 'dbo.carddb', 'dbo.CardDB'];
+            const candidates = Array.from(new Set(candidatesRaw.filter(Boolean)));
+            console.log(`[CardDB] Fallback candidates: ${candidates.join(', ')}`);
+            let ok = false;
+            for (const c of candidates) {
+                try {
+                    result = await tryQuery(c);
+                    console.log(`[CardDB] Fallback succeeded with table=${c}`);
+                    ok = true;
+                    break;
+                } catch (e) {
+                    // continue
+                }
+            }
+            if (!ok) {
+                // Discover likely tables by columns or name
+                try {
+                    const discover = await request.query(`
+                        SELECT DISTINCT TOP 30 t.TABLE_SCHEMA, t.TABLE_NAME
+                        FROM INFORMATION_SCHEMA.TABLES t
+                        WHERE t.TABLE_TYPE = 'BASE TABLE'
+                        AND (
+                            t.TABLE_NAME LIKE '%card%' OR t.TABLE_NAME LIKE '%Card%'
+                            OR EXISTS (
+                                SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS c
+                                WHERE c.TABLE_SCHEMA = t.TABLE_SCHEMA AND c.TABLE_NAME = t.TABLE_NAME
+                                AND c.COLUMN_NAME IN ('CardNo','cardno','StaffNo','staffno','Name','NAME')
+                            )
+                        )
+                    `);
+                    const list = (discover.recordset || []).map(r => `${r.TABLE_SCHEMA}.${r.TABLE_NAME}`);
+                    console.log(`[CardDB] Discovery candidates: ${list.join(', ')}`);
+                    for (const dn of list) {
+                        try {
+                            result = await tryQuery(dn);
+                            console.log(`[CardDB] Discovery succeeded with table=${dn}`);
+                            ok = true;
+                            break;
+                        } catch (e) {
+                            // continue
+                        }
+                    }
+                } catch (discErr) {
+                    // ignore discovery errors
+                }
+            }
+            if (!ok || !result) {
+                // Throw the last error for clarity, not the initial carddb error
+                throw new Error(primaryErr && primaryErr.message ? primaryErr.message : 'CardDB query failed');
+            }
+        }
+        const rows = result && result.recordset ? result.recordset : [];
+        res.json({ success: true, count: rows.length, rows });
+    } catch (error) {
+        console.error('Error fetching CardDB list:', error);
+        res.status(500).json({ success: false, error: 'Failed to fetch CardDB list', details: error.message });
+    } finally {
+        try { await sql.close(); } catch {}
+    }
+});
+
 // Update a single card directly from database (DataDBEnt) using card number
 // Body: { cardNo, endpointBaseUrl?, dbServer?, dbName?, dbUser?, dbPass?, dbPort?, overrides? }
 app.post('/api/vault/update-card-db', async (req, res) => {
@@ -656,13 +802,13 @@ app.post('/api/vault/update-card-db', async (req, res) => {
         if (!cn) {
             return res.status(400).json({ success: false, error: 'cardNo is required' });
         }
-        // Resolve DB connection config (fallback to server/.env DATADB_* values)
+        // Resolve DB connection config using CARDDB_* (user retrieval) env group
         const config = {
-            user: dbUser || process.env.DATADB_USER,
-            password: dbPass || process.env.DATADB_PASSWORD,
-            server: dbServer || process.env.DATADB_SERVER,
-            database: dbName || process.env.DATADB_NAME || 'DataDBEnt',
-            port: (dbPort ? parseInt(dbPort) : (parseInt(process.env.DATADB_PORT) || 1433)),
+            user: dbUser || process.env.CARDDB_USER || process.env.DATADB_USER,
+            password: dbPass || process.env.CARDDB_PASSWORD || process.env.DATADB_PASSWORD,
+            server: dbServer || process.env.CARDDB_SERVER || process.env.DATADB_SERVER,
+            database: dbName || process.env.CARDDB_NAME || process.env.DATADB_NAME || 'DataDBEnt',
+            port: (dbPort ? parseInt(dbPort) : (parseInt(process.env.CARDDB_PORT) || parseInt(process.env.DATADB_PORT) || 1433)),
             options: { encrypt: false, trustServerCertificate: true, enableArithAbort: true },
             pool: { max: 5, min: 0, idleTimeoutMillis: 30000 },
         };
@@ -671,10 +817,59 @@ app.post('/api/vault/update-card-db', async (req, res) => {
         await sql.connect(config);
         const request = new sql.Request();
         request.input('cardNo', sql.NVarChar(20), cn);
-        // Try common column casings
-        let result = await request.query('SELECT TOP 1 * FROM carddb WHERE cardno = @cardNo');
-        if (!result.recordset || result.recordset.length === 0) {
-            result = await request.query('SELECT TOP 1 * FROM carddb WHERE CardNo = @cardNo');
+        // Try common table and column casings with schema-aware quoting
+        const activeFilter = "([Del_State] = 0 OR [Del_State] = 'false')";
+        const bracketize = (name) => name.split('.').map(part => `[${part}]`).join('.');
+        const parseSchemaTable = (name) => {
+            const parts = String(name).split('.');
+            if (parts.length === 2) return { schema: parts[0], table: parts[1] };
+            return { schema: null, table: parts[0] };
+        };
+        const getColumns = async (tblName) => {
+            const { schema, table } = parseSchemaTable(tblName);
+            const where = schema
+                ? `TABLE_SCHEMA = @schema AND TABLE_NAME = @table`
+                : `TABLE_NAME = @table`;
+            const req = new sql.Request();
+            if (schema) req.input('schema', sql.NVarChar, schema);
+            req.input('table', sql.NVarChar, table);
+            const rs = await req.query(`SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE ${where}`);
+            const cols = new Set();
+            let resolvedSchema = schema;
+            for (const r of (rs.recordset || [])) {
+                cols.add(r.COLUMN_NAME);
+                resolvedSchema = resolvedSchema || r.TABLE_SCHEMA;
+            }
+            return { schema: resolvedSchema, table, columns: cols };
+        };
+        const envTbl = (() => {
+            const schema = (process.env.CARDDB_SCHEMA || '').trim();
+            const name = (process.env.CARDDB_TABLE || '').trim();
+            if (schema && name) return `${schema}.${name}`;
+            if (name) return name;
+            return null;
+        })();
+        const candidates = Array.from(new Set([envTbl, 'carddb', 'CardDB', 'dbo.carddb', 'dbo.CardDB'].filter(Boolean)));
+        console.log(`[CardDB] update-card-db candidates: ${candidates.join(', ')}`);
+        let result;
+        for (const tbl of candidates) {
+            try {
+                const info = await getColumns(tbl);
+                if (!info.schema) continue; // table not found
+                const qualified = bracketize(`${info.schema}.${info.table}`);
+                const hasCardNoLower = info.columns.has('cardno');
+                const hasCardNo = info.columns.has('CardNo');
+                const hasDel = info.columns.has('Del_State');
+                if (!hasCardNoLower && !hasCardNo) continue; // no matching card number column
+                const cardPred = [hasCardNoLower ? '[cardno] = @cardNo' : null, hasCardNo ? '[CardNo] = @cardNo' : null].filter(Boolean).join(' OR ');
+                const whereParts = [ `(${cardPred})` ];
+                if (hasDel) whereParts.push(activeFilter);
+                const q = `SELECT TOP 1 * FROM ${qualified} WHERE ${whereParts.join(' AND ')}`;
+                result = await request.query(q);
+                if (result.recordset && result.recordset.length > 0) break;
+            } catch (e) {
+                // keep trying other candidates
+            }
         }
         if (!result.recordset || result.recordset.length === 0) {
             return res.status(404).json({ success: false, error: `Card not found in carddb: ${cn}` });
