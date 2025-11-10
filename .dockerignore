@@ -1,0 +1,12 @@
+node_modules
+npm-debug.log*
+*.log
+.DS_Store
+.trae/
+docs/
+scripts/
+server/output/
+server/scripts/updateFromExcel.local.*
+server/scripts/*.xlsx
+UpdateCardTemplate.xlsx
+dist
