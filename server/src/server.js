@@ -976,6 +976,57 @@ app.post('/api/vault/update-card-db', async (req, res) => {
             StaffNo: clip(row.StaffNo || row.StaffID || '', max.StaffNo),
         };
 
+        // Sanitize date formats to 'YYYY-MM-DD' for Vault API to avoid SQL conversion errors
+        const normalizeVaultDate = (val) => {
+            if (val === null || typeof val === 'undefined') return '';
+            let s = String(val).trim();
+            if (!s || s === '-' || s === '0' || s.toLowerCase() === 'null') return '';
+            // If ISO like 1900-01-01T00:00:00.000Z -> take the date part
+            if (/^\d{4}-\d{2}-\d{2}T/.test(s)) {
+                return s.slice(0, 10);
+            }
+            // If already yyyy-mm-dd
+            if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+            // dd/mm/yyyy or mm/dd/yyyy -> normalize by Date
+            if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(s)) {
+                const [a,b,c] = s.split('/');
+                // Try both interpretations safely using Date
+                const try1 = new Date(`${c}-${a.padStart(2,'0')}-${b.padStart(2,'0')}T00:00:00Z`);
+                const try2 = new Date(`${c}-${b.padStart(2,'0')}-${a.padStart(2,'0')}T00:00:00Z`);
+                const d = isNaN(try1.getTime()) ? try2 : try1;
+                if (!isNaN(d.getTime())) {
+                    const y = d.getUTCFullYear();
+                    const m = String(d.getUTCMonth()+1).padStart(2,'0');
+                    const day = String(d.getUTCDate()).padStart(2,'0');
+                    return `${y}-${m}-${day}`;
+                }
+            }
+            // "1 Jan 1900" or similar -> map month names
+            const mMatch = s.match(/^(\d{1,2})\s+([A-Za-z]{3,})\s+(\d{4})$/);
+            if (mMatch) {
+                const day = mMatch[1].padStart(2,'0');
+                const monStr = mMatch[2].toLowerCase();
+                const year = mMatch[3];
+                const months = { jan:'01', feb:'02', mar:'03', apr:'04', may:'05', jun:'06', jul:'07', aug:'08', sep:'09', sept:'09', oct:'10', nov:'11', dec:'12' };
+                const mon = months[monStr];
+                if (mon) return `${year}-${mon}-${day}`;
+            }
+            // Fallback: if looks like a Date string, try Date.parse
+            const d = new Date(s);
+            if (!isNaN(d.getTime())) {
+                const y = d.getUTCFullYear();
+                const m = String(d.getUTCMonth()+1).padStart(2,'0');
+                const day = String(d.getUTCDate()).padStart(2,'0');
+                return `${y}-${m}-${day}`;
+            }
+            // If unknown format, send empty to avoid controller conversion errors
+            return '';
+        };
+        profile.DOB = normalizeVaultDate(profile.DOB);
+        profile.JoiningDate = normalizeVaultDate(profile.JoiningDate);
+        profile.ResignDate = normalizeVaultDate(profile.ResignDate);
+        profile.ExpiredDate = normalizeVaultDate(profile.ExpiredDate);
+
         // Apply overrides if provided
         const ov = overrides || {};
         const apply = (k, v) => { if (v !== undefined && v !== null && v !== '') profile[k] = String(v).trim(); };
