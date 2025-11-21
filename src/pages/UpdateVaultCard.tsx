@@ -89,7 +89,7 @@ const UpdateVaultCard: React.FC = () => {
   const [cardNoEdits, setCardNoEdits] = useState<Record<number, string>>({});
   const [photoChecks, setPhotoChecks] = useState<Record<number, boolean>>({});
   const [downloadCardEdits, setDownloadCardEdits] = useState<Record<number, boolean>>({});
-  const [rowStatusMap, setRowStatusMap] = useState<Record<number, { state: 'idle' | 'executing' | 'success' | 'failed', code?: string, message?: string, requestId?: string, durationMs?: number, cardNo?: string, startedAt?: number }>>({});
+  const [rowStatusMap, setRowStatusMap] = useState<Record<number, { state: 'idle' | 'executing' | 'success' | 'failed', code?: string, message?: string, requestId?: string, durationMs?: number }>>({});
   const [uploadedUpdatePath, setUploadedUpdatePath] = useState<string | undefined>();
   const [uploadingUpdate, setUploadingUpdate] = useState(false);
   const [csvUpdatePathInput, setCsvUpdatePathInput] = useState<string>("");
@@ -101,7 +101,7 @@ const UpdateVaultCard: React.FC = () => {
   const [cardDbLimit, setCardDbLimit] = useState<number>(200);
   // Table is hard-coded server-side; remove client control
   const [cardDbSelected, setCardDbSelected] = useState<Record<string, boolean>>({});
-  const [cardDbRowStatus, setCardDbRowStatus] = useState<Record<string, { state: 'idle' | 'executing' | 'success' | 'failed', code?: string, message?: string }>>({});
+  const [cardDbRowStatus, setCardDbRowStatus] = useState<Record<string, { state: 'idle' | 'executing' | 'success' | 'failed', code?: string, message?: string, startedAt?: number }>>({});
 
   // Single-card update from DB section state
   const [dbCardNo, setDbCardNo] = useState<string>("");
@@ -262,7 +262,7 @@ const UpdateVaultCard: React.FC = () => {
     let okCount = 0;
     for (const cn of selectedCardNos) {
       try {
-        setCardDbRowStatus((prev) => ({ ...prev, [cn]: { state: 'executing' } }));
+        setCardDbRowStatus((prev) => ({ ...prev, [cn]: { state: 'executing', startedAt: Date.now() } }));
         const res = await fetch('/api/vault/update-card-db', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -645,7 +645,16 @@ const UpdateVaultCard: React.FC = () => {
                           <td className="py-2 pr-4">
                             <div className={`text-xs ${color} max-w-xs whitespace-normal break-words`}>
                               {st === 'idle' && 'Idle'}
-                              {st === 'executing' && `Executing… ${cn}`}
+                              {st === 'executing' && (() => {
+                                const startedAt = cardDbRowStatus[cn]?.startedAt;
+                                let elapsed = '';
+                                if (typeof startedAt === 'number') {
+                                  const ms = Math.max(0, Date.now() - startedAt);
+                                  const s = Math.floor(ms / 1000);
+                                  elapsed = ` — ${s}s`;
+                                }
+                                return `Executing… ${cn}${elapsed}`;
+                              })()}
                               {st === 'success' && `Success (code ${code})`}
                               {st === 'failed' && `Failed${message ? `: ${message}` : ''} (code ${code})`}
                             </div>

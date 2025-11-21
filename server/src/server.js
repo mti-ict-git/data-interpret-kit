@@ -667,6 +667,10 @@ app.get('/api/vault/carddb', async (req, res) => {
             options: { trustServerCertificate: true, enableArithAbort: true, encrypt: false },
             pool: { max: 10, min: 0, idleTimeoutMillis: 30000 }
         };
+        const missing = !config.server || !config.user || !config.password;
+        if (missing) {
+            return res.json({ success: true, count: 0, rows: [], warning: 'CardDB configuration not set' });
+        }
         // Log resolved connection (mask sensitive values)
         console.log(`[CardDB] Connecting server=${config.server} db=${config.database} user=${config.user} port=${config.port}`);
         await sql.connect(config);
