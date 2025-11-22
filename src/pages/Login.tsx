@@ -51,7 +51,6 @@ const Login: React.FC = () => {
             <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
           </div>
           <Button className="w-full" onClick={onSubmit} disabled={loading || !email || !password}>{loading ? 'Signing in…' : 'Sign In'}</Button>
-          <div className="text-sm text-center text-muted-foreground">Don’t have an account? <a href="/signup" className="underline">Sign up</a></div>
         </CardContent>
       </Card>
     </div>

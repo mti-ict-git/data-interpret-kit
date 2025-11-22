@@ -1452,7 +1452,6 @@ app.delete('/api/users/:id', auth.requireAuth, auth.requireAdmin, async (req, re
 
 // Authentication
 app.post('/api/auth/login', auth.login);
-app.post('/api/auth/signup', auth.signup);
 app.post('/api/auth/logout', auth.logout);
 app.get('/api/auth/me', auth.me);
 

@@ -10,7 +10,6 @@ import RegisterVault from "./pages/RegisterVault";
 import UpdateVaultCard from "./pages/UpdateVaultCard";
 import UserManagement from "./pages/UserManagement";
 import Login from "./pages/Login";
-import Signup from "./pages/Signup";
 
 const queryClient = new QueryClient();
 
@@ -39,7 +38,6 @@ const App = () => (
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
-          <Route path="/signup" element={<Signup />} />
           <Route path="/card-processor" element={<RequireAuth><Index /></RequireAuth>} />
           <Route path="/" element={<Navigate to="/card-processor" replace />} />
           <Route path="/register-vault" element={<RequireAuth><RegisterVault /></RequireAuth>} />
