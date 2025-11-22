@@ -52,6 +52,11 @@ function isRoleValid(role) {
   return AllowedRoles.includes(normalizeRole(role));
 }
 
+function isPasswordStrong(password) {
+  const s = String(password || '');
+  return s.length >= 8 && /[A-Z]/.test(s) && /[a-z]/.test(s) && /\d/.test(s) && /[^A-Za-z0-9]/.test(s);
+}
+
 function hashPassword(password) {
   const salt = crypto.randomBytes(16).toString('hex');
   const iterations = 150000;
@@ -122,5 +127,6 @@ module.exports = {
   deleteUser,
   isRoleValid,
   isStatusValid,
+  isPasswordStrong,
   verifyPassword,
 };

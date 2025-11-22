@@ -66,7 +66,7 @@ async function signup(req, res) {
   try {
     const { name, email, password } = req.body || {};
     if (!name || !email || !password) return res.status(400).json({ success: false, error: 'name, email and password required' });
-    if (String(password).length < 8) return res.status(400).json({ success: false, error: 'password must be at least 8 characters' });
+    if (!userStore.isPasswordStrong(password)) return res.status(400).json({ success: false, error: 'password must be at least 8 characters and include uppercase, lowercase, number, and symbol' });
     const emailLower = String(email).toLowerCase();
     const existing = await userStore.getAllUsers();
     if (existing.find(u => u.email === emailLower)) return res.status(409).json({ success: false, error: 'email already registered' });

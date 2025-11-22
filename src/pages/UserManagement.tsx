@@ -16,7 +16,7 @@ import {
   AlertDialogCancel,
   AlertDialogAction,
 } from "@/components/ui/alert-dialog";
-import { Pencil, Trash2 } from "lucide-react";
+import { Pencil, Trash2, Eye, EyeOff, CheckCircle2, XCircle } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 
@@ -41,6 +41,7 @@ const UserManagement: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<{ id: string; role: string } | null>(null);
   const [openConfirm, setOpenConfirm] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
 
   const fetchUsers = async () => {
     setLoading(true);
@@ -89,17 +90,22 @@ const UserManagement: React.FC = () => {
     setOpenEdit(true);
   };
 
+  const isPasswordStrong = (pwd: string) => {
+    const s = String(pwd || '');
+    return s.length >= 8 && /[A-Z]/.test(s) && /[a-z]/.test(s) && /\d/.test(s) && /[^A-Za-z0-9]/.test(s);
+  };
+
   const submitForm = async () => {
     try {
       const body = { ...form };
-      if (!editing && !(body.password && body.password.length >= 8)) {
-        throw new Error('Password must be at least 8 characters');
+      if (!editing && !(body.password && isPasswordStrong(body.password))) {
+        throw new Error('Password must be at least 8 characters and include uppercase, lowercase, number, and symbol');
       }
       if (editing && !body.password) {
         delete body.password;
       }
-      if (editing && body.password && body.password.length < 8) {
-        throw new Error('Password must be at least 8 characters');
+      if (editing && body.password && !isPasswordStrong(body.password)) {
+        throw new Error('Password must be at least 8 characters and include uppercase, lowercase, number, and symbol');
       }
       const isAdmin = currentUser?.role === 'Admin';
       if (!isAdmin) {
@@ -265,7 +271,33 @@ const UserManagement: React.FC = () => {
               </div>
               <div>
                 <label className="text-sm font-medium">Password {editing ? '(leave blank to keep current)' : ''}</label>
-                <Input type="password" value={form.password || ''} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} />
+                <div className="relative">
+                  <Input type={showPassword ? 'text' : 'password'} value={form.password || ''} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="absolute right-1.5 top-1.5 h-7 w-7"
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    onClick={() => setShowPassword(v => !v)}
+                  >
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </Button>
+                </div>
+                <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-1 text-xs">
+                  {[
+                    { ok: (form.password || '').length >= 8, label: 'At least 8 characters' },
+                    { ok: /[A-Z]/.test(String(form.password || '')), label: 'Contains uppercase' },
+                    { ok: /[a-z]/.test(String(form.password || '')), label: 'Contains lowercase' },
+                    { ok: /\d/.test(String(form.password || '')), label: 'Contains number' },
+                    { ok: /[^A-Za-z0-9]/.test(String(form.password || '')), label: 'Contains symbol' },
+                  ].map((r, i) => (
+                    <div key={i} className={`flex items-center gap-1 ${r.ok ? 'text-green-600' : 'text-muted-foreground'}`}>
+                      {r.ok ? <CheckCircle2 className="h-3.5 w-3.5" /> : <XCircle className="h-3.5 w-3.5" />}
+                      <span>{r.label}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
               {currentUser?.role === 'Admin' && (
                 <>

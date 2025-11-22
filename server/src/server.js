@@ -1393,7 +1393,7 @@ app.post('/api/users', auth.requireAuth, auth.requireAdmin, async (req, res) => 
         if (!name || !email) return res.status(400).json({ success: false, error: 'name and email are required' });
         if (role && !userStore.isRoleValid(role)) return res.status(400).json({ success: false, error: 'invalid role, allowed: Admin | User' });
         if (status && !userStore.isStatusValid(status)) return res.status(400).json({ success: false, error: 'invalid status, allowed: Active | Inactive' });
-        if (password && String(password).length < 8) return res.status(400).json({ success: false, error: 'password must be at least 8 characters' });
+        if (password && !userStore.isPasswordStrong(password)) return res.status(400).json({ success: false, error: 'password must be at least 8 characters and include uppercase, lowercase, number, and symbol' });
         const user = await userStore.createUser({ name, email, role, status, password });
         const safe = { id: user.id, name: user.name, email: user.email, role: user.role, status: user.status, createdAt: user.createdAt, updatedAt: user.updatedAt };
         res.json({ success: true, user: safe });
@@ -1426,7 +1426,7 @@ app.put('/api/users/:id', auth.requireAuth, async (req, res) => {
         }
         if (body.role && !userStore.isRoleValid(body.role)) return res.status(400).json({ success: false, error: 'invalid role, allowed: Admin | User' });
         if (body.status && !userStore.isStatusValid(body.status)) return res.status(400).json({ success: false, error: 'invalid status, allowed: Active | Inactive' });
-        if (body.password && String(body.password).length < 8) return res.status(400).json({ success: false, error: 'password must be at least 8 characters' });
+        if (body.password && !userStore.isPasswordStrong(body.password)) return res.status(400).json({ success: false, error: 'password must be at least 8 characters and include uppercase, lowercase, number, and symbol' });
         const updated = await userStore.updateUser(req.params.id, body);
         if (!updated) return res.status(404).json({ success: false, error: 'User not found' });
         const safe = { id: updated.id, name: updated.name, email: updated.email, role: updated.role, status: updated.status, createdAt: updated.createdAt, updatedAt: updated.updatedAt };
