@@ -65,27 +65,36 @@ class Database {
     }
 
     async query(queryString, params = {}) {
-        try {
+        const execOnce = async () => {
             await this.connect();
             const request = this.pool.request();
             const qid = `${Date.now()}-${Math.floor(Math.random() * 1000)}`;
             const paramKeys = Object.keys(params);
-            // Add parameters to the request
-            paramKeys.forEach(key => {
-                request.input(key, params[key]);
-            });
+            paramKeys.forEach(key => { request.input(key, params[key]); });
             console.log(`[AppDB] QUERY START id=${qid} len=${queryString?.length || 0} params=${paramKeys.join(', ')}`);
             const result = await request.query(queryString);
             const rows = result?.recordset?.length || 0;
             const affected = Array.isArray(result?.rowsAffected) ? result.rowsAffected.join(',') : 'unknown';
             console.log(`[AppDB] QUERY DONE id=${qid} rows=${rows} rowsAffected=${affected}`);
             return result;
+        };
+        try {
+            return await execOnce();
         } catch (err) {
-            console.error('[AppDB] QUERY ERROR:', err?.message || err);
-            console.error('[AppDB] QUERY ERROR detail:', {
-                queryPreview: String(queryString || '').slice(0, 200),
-                params
-            });
+            const msg = err?.message || String(err);
+            console.error('[AppDB] QUERY ERROR:', msg);
+            console.error('[AppDB] QUERY ERROR detail:', { queryPreview: String(queryString || '').slice(0, 200), params });
+            if (msg.includes('Connection is closed') || err?.code === 'ECONNCLOSED') {
+                console.warn('[AppDB] Pool closed, attempting reconnect');
+                try {
+                    this.connected = false;
+                    this.pool = null;
+                    return await execOnce();
+                } catch (err2) {
+                    console.error('[AppDB] Reconnect failed:', err2?.message || err2);
+                    throw err2;
+                }
+            }
             throw err;
         }
     }

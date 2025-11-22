@@ -16,6 +16,8 @@ const database = require('./database');
 const { registerJobToVault, previewJobToVault, registerCsvPathToVault, previewCsvPathToVault, updateCsvPathToVault, previewUpdateCsvPathToVault, updateCsvRowToVault, updateProfileToVault } = require('./vaultRegistrar');
 const sql = require('mssql');
 const { photoExists } = require('./vaultRegistrar');
+const auth = require('./auth');
+const userStore = require('./userStore');
 const imageProcessor = new ImageProcessor();
 let jobManager; // Will be initialized after database connection
 // In-memory cache for CardDB resolution to speed up repeated queries
@@ -1240,13 +1242,7 @@ app.use((error, req, res, next) => {
 });
 
 // 404 handler moved below download route
-app.use('*', (req, res) => {
-    res.status(404).json({
-        success: false,
-        error: 'Endpoint not found',
-        path: req.originalUrl
-    });
-});
+// 404 handler registered after all routes
 
 // Start server immediately, then attempt database connection asynchronously
 async function startServer() {
@@ -1378,4 +1374,93 @@ app.post('/api/vault/update-progress-csv', async (req, res) => {
     } catch (error) {
         res.status(500).json({ success: false, error: 'Failed to read update progress', details: error.message });
     }
+});
+
+// User management endpoints
+app.get('/api/users', auth.requireAuth, async (req, res) => {
+    try {
+        const users = await userStore.getAllUsers();
+        const safe = users.map(u => ({ id: u.id, name: u.name, email: u.email, role: u.role, status: u.status, createdAt: u.createdAt, updatedAt: u.updatedAt }));
+        res.json({ success: true, users: safe });
+    } catch (error) {
+        res.status(500).json({ success: false, error: 'Failed to list users', details: error.message });
+    }
+});
+
+app.post('/api/users', auth.requireAuth, auth.requireAdmin, async (req, res) => {
+    try {
+        const { name, email, role, status, password } = req.body || {};
+        if (!name || !email) return res.status(400).json({ success: false, error: 'name and email are required' });
+        if (role && !userStore.isRoleValid(role)) return res.status(400).json({ success: false, error: 'invalid role, allowed: Admin | User' });
+        if (status && !userStore.isStatusValid(status)) return res.status(400).json({ success: false, error: 'invalid status, allowed: Active | Inactive' });
+        if (password && String(password).length < 8) return res.status(400).json({ success: false, error: 'password must be at least 8 characters' });
+        const user = await userStore.createUser({ name, email, role, status, password });
+        const safe = { id: user.id, name: user.name, email: user.email, role: user.role, status: user.status, createdAt: user.createdAt, updatedAt: user.updatedAt };
+        res.json({ success: true, user: safe });
+    } catch (error) {
+        res.status(500).json({ success: false, error: 'Failed to create user', details: error.message });
+    }
+});
+
+app.get('/api/users/:id', auth.requireAuth, async (req, res) => {
+    try {
+        const user = await userStore.getUser(req.params.id);
+        if (!user) return res.status(404).json({ success: false, error: 'User not found' });
+        const safe = { id: user.id, name: user.name, email: user.email, role: user.role, status: user.status, createdAt: user.createdAt, updatedAt: user.updatedAt };
+        res.json({ success: true, user: safe });
+    } catch (error) {
+        res.status(500).json({ success: false, error: 'Failed to get user', details: error.message });
+    }
+});
+
+app.put('/api/users/:id', auth.requireAuth, async (req, res) => {
+    try {
+        const body = req.body || {};
+        const isAdmin = req.user?.role === 'Admin';
+        const isSelf = req.user?.id === req.params.id;
+        if (!isAdmin && !isSelf) return res.status(403).json({ success: false, error: 'forbidden' });
+        // Only admins may change role/status. For self-updates, ignore role/status fields.
+        if (!isAdmin) {
+            delete body.role;
+            delete body.status;
+        }
+        if (body.role && !userStore.isRoleValid(body.role)) return res.status(400).json({ success: false, error: 'invalid role, allowed: Admin | User' });
+        if (body.status && !userStore.isStatusValid(body.status)) return res.status(400).json({ success: false, error: 'invalid status, allowed: Active | Inactive' });
+        if (body.password && String(body.password).length < 8) return res.status(400).json({ success: false, error: 'password must be at least 8 characters' });
+        const updated = await userStore.updateUser(req.params.id, body);
+        if (!updated) return res.status(404).json({ success: false, error: 'User not found' });
+        const safe = { id: updated.id, name: updated.name, email: updated.email, role: updated.role, status: updated.status, createdAt: updated.createdAt, updatedAt: updated.updatedAt };
+        res.json({ success: true, user: safe });
+    } catch (error) {
+        res.status(500).json({ success: false, error: 'Failed to update user', details: error.message });
+    }
+});
+
+app.delete('/api/users/:id', auth.requireAuth, auth.requireAdmin, async (req, res) => {
+    try {
+        const ok = await userStore.deleteUser(req.params.id);
+        if (!ok) return res.status(404).json({ success: false, error: 'User not found' });
+        res.json({ success: true });
+    } catch (error) {
+        const msg = String(error?.message || '');
+        if (msg.includes('REFERENCE constraint') || msg.includes('FOREIGN KEY') || msg.includes('conflicted')) {
+            return res.status(409).json({ success: false, error: 'User is referenced by other records', details: msg });
+        }
+        res.status(500).json({ success: false, error: 'Failed to delete user', details: msg });
+    }
+});
+
+// Authentication
+app.post('/api/auth/login', auth.login);
+app.post('/api/auth/signup', auth.signup);
+app.post('/api/auth/logout', auth.logout);
+app.get('/api/auth/me', auth.me);
+
+// 404 catch-all (must be last)
+app.use('*', (req, res) => {
+    res.status(404).json({
+        success: false,
+        error: 'Endpoint not found',
+        path: req.originalUrl
+    });
 });
