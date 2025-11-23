@@ -195,18 +195,59 @@ const ActivityLog: React.FC = () => {
                     <div className="break-all">{selected.userAgent || '-'}</div>
                   </div>
                 </div>
-                <div className="space-y-2">
-                  <div className="text-sm font-medium">Old Values</div>
-                  <pre className="p-3 bg-muted rounded overflow-auto max-h-48 text-xs">{String(selected.oldValues || '').trim() || '-'}</pre>
-                </div>
-                <div className="space-y-2">
-                  <div className="text-sm font-medium">New Values</div>
-                  <pre className="p-3 bg-muted rounded overflow-auto max-h-48 text-xs">{String(selected.newValues || '').trim() || '-'}</pre>
-                </div>
-                <div className="space-y-2">
-                  <div className="text-sm font-medium">Details</div>
-                  <pre className="p-3 bg-muted rounded overflow-auto max-h-48 text-xs">{String(selected.details || '').trim() || '-'}</pre>
-                </div>
+                {(() => {
+                  const parse = (val: unknown) => {
+                    const s = String(val || '').trim();
+                    if (!s) return null;
+                    try { return JSON.parse(s); } catch { return null; }
+                  };
+                  const pretty = (val: unknown) => {
+                    const s = String(val || '').trim();
+                    if (!s) return '-';
+                    try { return JSON.stringify(JSON.parse(s), null, 2); } catch { return s; }
+                  };
+                  const renderKV = (obj: Record<string, unknown>) => (
+                    <table className="w-full text-xs">
+                      <tbody>
+                        {Object.entries(obj).map(([k, v]) => (
+                          <tr key={k} className="border-b">
+                            <td className="py-1 pr-4 text-muted-foreground align-top">{k}</td>
+                            <td className="py-1 font-mono break-all">{typeof v === 'string' ? v : JSON.stringify(v)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  );
+                  const Section = ({ title, raw }: { title: string; raw: unknown }) => {
+                    const obj = parse(raw);
+                    const content = obj ? renderKV(obj as Record<string, unknown>) : (
+                      <pre className="p-3 bg-muted rounded overflow-auto max-h-48 text-xs">{pretty(raw)}</pre>
+                    );
+                    const copyText = obj ? JSON.stringify(obj, null, 2) : String(raw || '').trim();
+                    return (
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <div className="text-sm font-medium">{title}</div>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => { try { navigator.clipboard.writeText(copyText); } catch (e) { console.warn(e); } }}
+                          >
+                            Copy
+                          </Button>
+                        </div>
+                        {content}
+                      </div>
+                    );
+                  };
+                  return (
+                    <>
+                      <Section title="Old Values" raw={selected.oldValues} />
+                      <Section title="New Values" raw={selected.newValues} />
+                      <Section title="Details" raw={selected.details} />
+                    </>
+                  );
+                })()}
               </div>
             )}
           </DialogContent>
