@@ -1,7 +1,8 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { AppLayout } from "@/components/AppLayout";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
@@ -27,7 +28,7 @@ const ActivityLog: React.FC = () => {
   const [search, setSearch] = useState("");
   const [start, setStart] = useState("");
   const [end, setEnd] = useState("");
-  const [limit, setLimit] = useState(50);
+  const [limit, setLimit] = useState(10);
   const [offset, setOffset] = useState(0);
   const [total, setTotal] = useState(0);
   const [rows, setRows] = useState<AuditRow[]>([]);
@@ -45,7 +46,7 @@ const ActivityLog: React.FC = () => {
     return qs.toString();
   }, [search, start, end, limit, offset]);
 
-  const fetchRows = async () => {
+  const fetchRows = useCallback(async () => {
     try {
       setLoading(true);
       const res = await fetch(`/api/audit-trail?${queryString}`, { credentials: "include" });
@@ -60,12 +61,11 @@ const ActivityLog: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [queryString, toast]);
 
   useEffect(() => {
     fetchRows();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [fetchRows]);
 
   return (
     <AppLayout title="Activity Log">
@@ -90,8 +90,18 @@ const ActivityLog: React.FC = () => {
                 <Input type="datetime-local" value={end} onChange={(e) => setEnd(e.target.value)} />
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium">Limit</label>
-                <Input type="number" value={limit} onChange={(e) => setLimit(Math.max(1, Math.min(200, Number(e.target.value) || 50)))} />
+                <label className="text-sm font-medium">Page size</label>
+                <Select value={String(limit)} onValueChange={(v) => { setLimit(Number(v)); setOffset(0); }}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select page size" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="10">10</SelectItem>
+                    <SelectItem value="25">25</SelectItem>
+                    <SelectItem value="50">50</SelectItem>
+                    <SelectItem value="100">100</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               <div className="flex items-end">
                 <Button className="w-full" onClick={fetchRows} disabled={loading}>{loading ? "Loading…" : "Refresh"}</Button>
