@@ -28,6 +28,7 @@ const PORT = process.env.PORT || 3001;
 
 // Security middleware
 app.use(helmet());
+app.set('trust proxy', true);
 
 // CORS configuration
 app.use(cors({
@@ -96,10 +97,24 @@ const upload = multer({
 async function recordAudit(req, { action, entityType, entityId, oldValues, newValues, details }) {
     try {
         const userId = req?.user?.id || null;
-        const ip = (req.headers['x-forwarded-for'] ? String(req.headers['x-forwarded-for']).split(',')[0] : req.ip) || null;
+        const ipHeader = req.headers['x-forwarded-for'];
+        const ipFromHeader = Array.isArray(ipHeader) ? ipHeader[0] : String(ipHeader || '').split(',')[0].trim();
+        const rawIp = ipFromHeader || req.ip || req.connection?.remoteAddress || req.socket?.remoteAddress || null;
+        const ip = rawIp && String(rawIp).startsWith('::ffff:') ? String(rawIp).slice(7) : (rawIp === '::1' ? '127.0.0.1' : rawIp);
+        const chain = [];
+        const ffList = String(ipHeader || '').split(',').map(s => s.trim()).filter(Boolean);
+        if (ffList.length) chain.push(...ffList);
+        const xReal = req.headers['x-real-ip'];
+        if (xReal && !chain.includes(String(xReal))) chain.push(String(xReal));
+        if (rawIp && !chain.includes(String(rawIp))) chain.push(String(rawIp));
         const ua = req.headers['user-agent'] || null;
         const q = `INSERT INTO [dbo].[AuditTrail] (Id, UserId, Action, EntityType, EntityId, OldValues, NewValues, IpAddress, UserAgent, Details, CreatedAt)
                    VALUES (NEWID(), @userId, @action, @entityType, @entityId, @oldValues, @newValues, @ipAddress, @userAgent, @details, SYSUTCDATETIME())`;
+        const finalDetails = (() => {
+            if (!details) return JSON.stringify({ forwardedFor: chain });
+            if (typeof details === 'string') return details;
+            try { return JSON.stringify({ ...details, forwardedFor: chain }); } catch { return JSON.stringify(details); }
+        })();
         await database.query(q, {
             userId,
             action: String(action || ''),
@@ -109,7 +124,7 @@ async function recordAudit(req, { action, entityType, entityId, oldValues, newVa
             newValues: newValues ? JSON.stringify(newValues) : null,
             ipAddress: ip,
             userAgent: ua ? String(ua).slice(0, 500) : null,
-            details: details ? (typeof details === 'string' ? details : JSON.stringify(details)) : null,
+            details: finalDetails,
         });
     } catch (err) {
         console.warn('[AuditTrail] record failed:', err?.message || err);
