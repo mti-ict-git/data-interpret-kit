@@ -593,7 +593,7 @@ app.post('/api/vault/register-csv', async (req, res) => {
 });
 
 // Preview Vault update from a direct CSV/Excel path
-app.post('/api/vault/preview-update-csv', async (req, res) => {
+app.post('/api/vault/preview-update-csv', auth.requireAuth, async (req, res) => {
     try {
         const { csvPath } = req.body || {};
         if (!csvPath) {
@@ -609,7 +609,7 @@ app.post('/api/vault/preview-update-csv', async (req, res) => {
 });
 
 // Update existing Vault cards from a direct CSV/Excel path
-app.post('/api/vault/update-csv', async (req, res) => {
+app.post('/api/vault/update-csv', auth.requireAuth, async (req, res) => {
     try {
         const { csvPath, endpointBaseUrl, overrides, indices, concurrency } = req.body || {};
         if (!csvPath) {
@@ -628,7 +628,7 @@ app.post('/api/vault/update-csv', async (req, res) => {
 });
 
 // Update a single row (by index) from a direct CSV/Excel path
-app.post('/api/vault/update-csv-row', async (req, res) => {
+app.post('/api/vault/update-csv-row', auth.requireAuth, async (req, res) => {
     try {
         const { csvPath, index, endpointBaseUrl, override } = req.body || {};
         if (csvPath === undefined || csvPath === null || String(csvPath).trim() === '') {
@@ -910,7 +910,7 @@ app.get('/api/vault/carddb', async (req, res) => {
 
 // Update a single card directly from database (DataDBEnt) using card number
 // Body: { cardNo, endpointBaseUrl?, dbServer?, dbName?, dbUser?, dbPass?, dbPort?, overrides? }
-app.post('/api/vault/update-card-db', async (req, res) => {
+app.post('/api/vault/update-card-db', auth.requireAuth, async (req, res) => {
     try {
         const { cardNo, endpointBaseUrl, dbServer, dbName, dbUser, dbPass, dbPort, overrides } = req.body || {};
         const cn = String(cardNo || '').trim();
@@ -1414,7 +1414,7 @@ app.get('/api/process/download/:id', async (req, res) => {
         });
     }
 });
-app.post('/api/vault/update-progress-csv', async (req, res) => {
+app.post('/api/vault/update-progress-csv', auth.requireAuth, async (req, res) => {
     try {
         const { csvPath } = req.body || {};
         if (!csvPath) {

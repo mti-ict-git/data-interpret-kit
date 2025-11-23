@@ -159,6 +159,7 @@ const UpdateVaultCard: React.FC = () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
+        credentials: 'include'
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
@@ -266,7 +267,8 @@ const UpdateVaultCard: React.FC = () => {
         const res = await fetch('/api/vault/update-card-db', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ cardNo: cn }) // server sets Download=true and uses DB profile
+          body: JSON.stringify({ cardNo: cn }), // server sets Download=true and uses DB profile
+          credentials: 'include'
         });
         const data = await res.json();
         const ok = !!data.success;
@@ -293,7 +295,8 @@ const UpdateVaultCard: React.FC = () => {
       const res = await fetch('/api/vault/preview-update-csv', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ csvPath: uploadedUpdatePath })
+        body: JSON.stringify({ csvPath: uploadedUpdatePath }),
+        credentials: 'include'
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
@@ -361,7 +364,7 @@ const UpdateVaultCard: React.FC = () => {
       const poll = async () => {
         if (stopPolling) return;
         try {
-          const r = await fetch(`/api/vault/update-progress-csv`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ csvPath: uploadedUpdatePath }) });
+          const r = await fetch(`/api/vault/update-progress-csv`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ csvPath: uploadedUpdatePath }), credentials: 'include' });
           if (r.ok) {
             const j = await r.json();
             const rows = j.rows || {};
@@ -382,7 +385,8 @@ const UpdateVaultCard: React.FC = () => {
       const res = await fetch(`/api/vault/update-csv`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ csvPath: uploadedUpdatePath, overrides, indices: valid, concurrency: 6 })
+        body: JSON.stringify({ csvPath: uploadedUpdatePath, overrides, indices: valid, concurrency: 6 }),
+        credentials: 'include'
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
@@ -460,7 +464,8 @@ const UpdateVaultCard: React.FC = () => {
           csvPath: uploadedUpdatePath,
           index,
           override: { cardNo: effectiveCardNo, downloadCard: effectiveDownload }
-        })
+        }),
+        credentials: 'include'
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
