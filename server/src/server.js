@@ -93,6 +93,64 @@ const upload = multer({
 
 // Routes
 
+async function recordAudit(req, { action, entityType, entityId, oldValues, newValues, details }) {
+    try {
+        const userId = req?.user?.id || null;
+        const ip = (req.headers['x-forwarded-for'] ? String(req.headers['x-forwarded-for']).split(',')[0] : req.ip) || null;
+        const ua = req.headers['user-agent'] || null;
+        const q = `INSERT INTO [dbo].[AuditTrail] (Id, UserId, Action, EntityType, EntityId, OldValues, NewValues, IpAddress, UserAgent, Details, CreatedAt)
+                   VALUES (NEWID(), @userId, @action, @entityType, @entityId, @oldValues, @newValues, @ipAddress, @userAgent, @details, SYSUTCDATETIME())`;
+        await database.query(q, {
+            userId,
+            action: String(action || ''),
+            entityType: String(entityType || ''),
+            entityId: entityId || null,
+            oldValues: oldValues ? JSON.stringify(oldValues) : null,
+            newValues: newValues ? JSON.stringify(newValues) : null,
+            ipAddress: ip,
+            userAgent: ua ? String(ua).slice(0, 500) : null,
+            details: details ? (typeof details === 'string' ? details : JSON.stringify(details)) : null,
+        });
+    } catch (err) {
+        console.warn('[AuditTrail] record failed:', err?.message || err);
+    }
+}
+
+// Audit retention / archiving job
+async function performAuditRetention() {
+    try {
+        const days = parseInt(process.env.AUDIT_RETENTION_DAYS || '90', 10);
+        if (!days || days <= 0) return;
+        const archive = String(process.env.AUDIT_ARCHIVE || 'false').toLowerCase() === 'true';
+        const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+        if (archive) {
+            const create = `IF NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[AuditTrailArchive]') AND type in (N'U'))
+            CREATE TABLE [dbo].[AuditTrailArchive] (
+                [Id] UNIQUEIDENTIFIER NOT NULL,
+                [UserId] UNIQUEIDENTIFIER NULL,
+                [Action] NVARCHAR(100) NULL,
+                [EntityType] NVARCHAR(50) NULL,
+                [EntityId] UNIQUEIDENTIFIER NULL,
+                [OldValues] NVARCHAR(MAX) NULL,
+                [NewValues] NVARCHAR(MAX) NULL,
+                [IpAddress] NVARCHAR(45) NULL,
+                [UserAgent] NVARCHAR(500) NULL,
+                [Details] NVARCHAR(MAX) NULL,
+                [CreatedAt] DATETIME2 NULL
+            )`;
+            await database.query(create);
+            await database.query(`INSERT INTO [dbo].[AuditTrailArchive] SELECT * FROM [dbo].[AuditTrail] WHERE CreatedAt < @cutoff`, { cutoff });
+            const del = await database.query(`DELETE FROM [dbo].[AuditTrail] WHERE CreatedAt < @cutoff`, { cutoff });
+            console.log(`[AuditTrail] Archived and deleted rows older than ${days} days. RowsAffected=${(del.rowsAffected||[]).join(',')}`);
+        } else {
+            const del = await database.query(`DELETE FROM [dbo].[AuditTrail] WHERE CreatedAt < @cutoff`, { cutoff });
+            console.log(`[AuditTrail] Deleted rows older than ${days} days. RowsAffected=${(del.rowsAffected||[]).join(',')}`);
+        }
+    } catch (err) {
+        console.warn('[AuditTrail] retention failed:', err?.message || err);
+    }
+}
+
 // Health check endpoint
 app.get('/api/health', (req, res) => {
     res.json({
@@ -142,14 +200,16 @@ app.post('/api/upload', upload.array('files', 10), async (req, res) => {
             });
         }
 
-        res.json({
+        const responsePayload = {
             success: true,
             message: 'Files uploaded successfully',
             files: uploadedFiles,
             processingMode: processingMode,
             uploadPath: sessionUploadDir,
             sessionId: sessionId
-        });
+        };
+        try { await recordAudit(req, { action: 'UPLOAD_FILES', entityType: 'UploadSession', entityId: sessionId, newValues: { files: uploadedFiles.map(f => f.originalName), processingMode }, details: { uploadPath: sessionUploadDir } }); } catch {}
+        res.json(responsePayload);
 
     } catch (error) {
         console.error('Upload error:', error);
@@ -223,7 +283,7 @@ app.post('/api/process', async (req, res) => {
         });
 
         // Return job information immediately
-        res.json({
+        const responsePayload = {
             success: true,
             message: 'Processing job started',
             jobId: job.id,
@@ -237,7 +297,9 @@ app.post('/api/process', async (req, res) => {
                 totalFiles: job.totalFiles,
                 radiusPercentage: job.radiusPercentage
             }
-        });
+        };
+        try { await recordAudit(req, { action: 'JOB_CREATE', entityType: 'Job', entityId: job.id, newValues: { processingMode, radiusPercentage }, details: { inputPath, outputPath: sessionOutputDir } }); } catch {}
+        res.json(responsePayload);
 
     } catch (error) {
         console.error('Processing error:', error);
@@ -409,10 +471,12 @@ app.patch('/api/jobs/:id/status', async (req, res) => {
         
         if (status) {
             updateSuccess = await jobManager.updateJobStatus(id, status);
+            try { await recordAudit(req, { action: 'JOB_STATUS_UPDATE', entityType: 'Job', entityId: id, details: { status } }); } catch {}
         }
         
         if (progress !== undefined) {
             updateSuccess = await jobManager.updateJobProgress(id, progress.processedFiles, progress.totalFiles);
+            try { await recordAudit(req, { action: 'JOB_PROGRESS_UPDATE', entityType: 'Job', entityId: id, details: { processed: progress.processedFiles, total: progress.totalFiles } }); } catch {}
         }
         
         if (!updateSuccess) {
@@ -451,6 +515,7 @@ app.delete('/api/jobs/:id', async (req, res) => {
             });
         }
         
+        try { await recordAudit(req, { action: 'JOB_DELETE', entityType: 'Job', entityId: id }); } catch {}
         res.json({
             success: true,
             message: 'Job deleted successfully'
@@ -482,9 +547,11 @@ app.post('/api/vault/register', async (req, res) => {
         const endpoint = endpointBaseUrl || process.env.VAULT_API_BASE || 'http://10.60.10.6/Vaultsite/APIwebservice.asmx';
         if (dryRun) {
             const preview = await previewJobToVault({ jobId, outputDir: sessionOutputDir });
+            try { await recordAudit(req, { action: 'VAULT_PREVIEW_REGISTER', entityType: 'Job', entityId: jobId, details: { endpointBaseUrl: endpoint, attempted: preview.attempted } }); } catch {}
             return res.json({ success: true, ...preview, endpointBaseUrl: endpoint });
         }
         const result = await registerJobToVault({ jobId, outputDir: sessionOutputDir, endpointBaseUrl: endpoint, overrides });
+        try { await recordAudit(req, { action: 'VAULT_REGISTER', entityType: 'Job', entityId: jobId, details: { endpointBaseUrl: endpoint, registered: result.registered, attempted: result.attempted, errors: result.errors?.length || 0 } }); } catch {}
         res.json({ success: true, ...result });
     } catch (error) {
         console.error('Error registering Vault cards:', error);
@@ -517,6 +584,7 @@ app.post('/api/vault/register-csv', async (req, res) => {
         }
         const endpoint = endpointBaseUrl || process.env.VAULT_API_BASE || 'http://10.60.10.6/Vaultsite/APIwebservice.asmx';
         const result = await registerCsvPathToVault({ csvPath, endpointBaseUrl: endpoint, overrides });
+        try { await recordAudit(req, { action: 'VAULT_REGISTER_CSV', entityType: 'CSV', entityId: null, details: { csvPath, registered: result.registered, attempted: result.attempted, errors: result.errors?.length || 0 } }); } catch {}
         res.json({ success: true, ...result });
     } catch (error) {
         console.error('Error registering Vault cards from CSV:', error);
@@ -551,6 +619,7 @@ app.post('/api/vault/update-csv', async (req, res) => {
         const result = await updateCsvPathToVault({ csvPath, endpointBaseUrl: endpoint, overrides, indices, concurrency });
         const errorCount = Array.isArray(result.errors) ? result.errors.length : 0;
         const success = (result.attempted || 0) > 0; // treat partial as success to avoid UX hard-fail
+        try { await recordAudit(req, { action: 'VAULT_UPDATE_CSV', entityType: 'CSV', entityId: null, details: { csvPath, attempted: result.attempted, errorCount, registered: result.registered } }); } catch {}
         res.json({ success, errorCount, ...result });
     } catch (error) {
         console.error('Error updating Vault cards from CSV:', error);
@@ -576,6 +645,7 @@ app.post('/api/vault/update-csv-row', async (req, res) => {
             code: result.details && result.details[0] ? result.details[0].respCode : undefined,
             message: result.details && result.details[0] ? result.details[0].respMessage : undefined,
         };
+        try { await recordAudit(req, { action: 'VAULT_UPDATE_ROW', entityType: 'CSV_ROW', entityId: null, details: { csvPath, index, success, code: rowStatus.code, message: rowStatus.message } }); } catch {}
         res.json({ success, requestId: result.requestId, rowStatus, ...result });
     } catch (error) {
         console.error('Error updating single Vault card from CSV:', error);
@@ -602,6 +672,7 @@ app.get('/api/vault/template/update-card.xlsx', async (req, res) => {
         const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
         res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
         res.setHeader('Content-Disposition', 'attachment; filename="UpdateCardTemplate.xlsx"');
+        try { await recordAudit(req, { action: 'TEMPLATE_DOWNLOAD_UPDATE_CARD', entityType: 'Template', entityId: null }); } catch {}
         return res.send(buf);
     } catch (error) {
         console.error('Error generating template:', error);
@@ -1258,12 +1329,12 @@ async function startServer() {
         });
 
         // Attempt database connection without blocking server startup
-        database.connect()
-            .then(() => {
-                console.log('✅ Database connected successfully');
-                // Initialize JobManager after database connection
-                jobManager = new JobManager();
-                console.log('✅ JobManager initialized');
+            database.connect()
+                .then(() => {
+                    console.log('✅ Database connected successfully');
+                    // Initialize JobManager after database connection
+                    jobManager = new JobManager();
+                    console.log('✅ JobManager initialized');
                 // Quick sanity check: count ProcessingBatches
                 database.query('SELECT COUNT(*) AS cnt FROM ProcessingBatches')
                     .then(r => {
@@ -1273,10 +1344,19 @@ async function startServer() {
                     .catch(err => {
                         console.error('[AppDB] ProcessingBatches count failed:', err?.message || err);
                     });
-            })
-            .catch((error) => {
-                console.error('⚠️ Database connection failed. Features that require DB will be unavailable until it connects:', error.message || error);
-            });
+
+                // Schedule audit retention job
+                const intervalMin = parseInt(process.env.AUDIT_RETENTION_INTERVAL_MINUTES || '360', 10);
+                if (intervalMin > 0) {
+                    setInterval(performAuditRetention, intervalMin * 60 * 1000);
+                    // Run once at startup
+                    performAuditRetention();
+                    console.log(`[AuditTrail] Retention job scheduled every ${intervalMin} minutes`);
+                }
+                })
+                .catch((error) => {
+                    console.error('⚠️ Database connection failed. Features that require DB will be unavailable until it connects:', error.message || error);
+                });
     } catch (error) {
         console.error('❌ Failed to start server:', error);
         process.exit(1);
@@ -1396,6 +1476,7 @@ app.post('/api/users', auth.requireAuth, auth.requireAdmin, async (req, res) => 
         if (password && !userStore.isPasswordStrong(password)) return res.status(400).json({ success: false, error: 'password must be at least 8 characters and include uppercase, lowercase, number, and symbol' });
         const user = await userStore.createUser({ name, email, role, status, password });
         const safe = { id: user.id, name: user.name, email: user.email, role: user.role, status: user.status, createdAt: user.createdAt, updatedAt: user.updatedAt };
+        try { await recordAudit(req, { action: 'USER_CREATE', entityType: 'User', entityId: user.id, newValues: safe }); } catch {}
         res.json({ success: true, user: safe });
     } catch (error) {
         res.status(500).json({ success: false, error: 'Failed to create user', details: error.message });
@@ -1427,9 +1508,11 @@ app.put('/api/users/:id', auth.requireAuth, async (req, res) => {
         if (body.role && !userStore.isRoleValid(body.role)) return res.status(400).json({ success: false, error: 'invalid role, allowed: Admin | User' });
         if (body.status && !userStore.isStatusValid(body.status)) return res.status(400).json({ success: false, error: 'invalid status, allowed: Active | Inactive' });
         if (body.password && !userStore.isPasswordStrong(body.password)) return res.status(400).json({ success: false, error: 'password must be at least 8 characters and include uppercase, lowercase, number, and symbol' });
+        const before = await userStore.getUser(req.params.id);
         const updated = await userStore.updateUser(req.params.id, body);
         if (!updated) return res.status(404).json({ success: false, error: 'User not found' });
         const safe = { id: updated.id, name: updated.name, email: updated.email, role: updated.role, status: updated.status, createdAt: updated.createdAt, updatedAt: updated.updatedAt };
+        try { await recordAudit(req, { action: 'USER_UPDATE', entityType: 'User', entityId: updated.id, oldValues: before ? { id: before.id, name: before.name, email: before.email, role: before.role, status: before.status } : null, newValues: safe }); } catch {}
         res.json({ success: true, user: safe });
     } catch (error) {
         res.status(500).json({ success: false, error: 'Failed to update user', details: error.message });
@@ -1438,8 +1521,10 @@ app.put('/api/users/:id', auth.requireAuth, async (req, res) => {
 
 app.delete('/api/users/:id', auth.requireAuth, auth.requireAdmin, async (req, res) => {
     try {
+        const before = await userStore.getUser(req.params.id);
         const ok = await userStore.deleteUser(req.params.id);
         if (!ok) return res.status(404).json({ success: false, error: 'User not found' });
+        try { await recordAudit(req, { action: 'USER_DELETE', entityType: 'User', entityId: req.params.id, oldValues: before ? { id: before.id, name: before.name, email: before.email, role: before.role, status: before.status } : null }); } catch {}
         res.json({ success: true });
     } catch (error) {
         const msg = String(error?.message || '');
@@ -1454,6 +1539,158 @@ app.delete('/api/users/:id', auth.requireAuth, auth.requireAdmin, async (req, re
 app.post('/api/auth/login', auth.login);
 app.post('/api/auth/logout', auth.logout);
 app.get('/api/auth/me', auth.me);
+
+
+// Audit Trail
+app.get('/api/audit-trail', auth.requireAuth, auth.requireAdmin, async (req, res) => {
+    try {
+        const search = String(req.query.search || '').trim();
+        const limit = Math.max(1, Math.min(200, parseInt(String(req.query.limit || '50'), 10) || 50));
+        const offset = Math.max(0, parseInt(String(req.query.offset || '0'), 10) || 0);
+        const start = String(req.query.start || '').trim();
+        const end = String(req.query.end || '').trim();
+
+        const whereClauses = [];
+        const params = { limit, offset };
+        if (search) {
+            whereClauses.push(`(
+                AT.Action LIKE '%' + @search + '%' OR
+                AT.EntityType LIKE '%' + @search + '%' OR
+                CONVERT(NVARCHAR(36), AT.EntityId) LIKE '%' + @search + '%' OR
+                AT.IpAddress LIKE '%' + @search + '%' OR
+                AT.UserAgent LIKE '%' + @search + '%' OR
+                AT.Details LIKE '%' + @search + '%' OR
+                AT.OldValues LIKE '%' + @search + '%' OR
+                AT.NewValues LIKE '%' + @search + '%' OR
+                U.Username LIKE '%' + @search + '%' OR
+                U.Email LIKE '%' + @search + '%'
+            )`);
+            params.search = search;
+        }
+        if (start) {
+            whereClauses.push(`AT.CreatedAt >= @start`);
+            params.start = new Date(start);
+        }
+        if (end) {
+            whereClauses.push(`AT.CreatedAt <= @end`);
+            params.end = new Date(end);
+        }
+
+        const whereSql = whereClauses.length ? `WHERE ${whereClauses.join(' AND ')}` : '';
+        const q = `
+            SELECT 
+                AT.Id as id,
+                AT.UserId as userId,
+                U.Username as userName,
+                U.Email as userEmail,
+                AT.Action as action,
+                AT.EntityType as entityType,
+                AT.EntityId as entityId,
+                AT.OldValues as oldValues,
+                AT.NewValues as newValues,
+                AT.IpAddress as ipAddress,
+                AT.UserAgent as userAgent,
+                AT.Details as details,
+                AT.CreatedAt as createdAt
+            FROM [dbo].[AuditTrail] AT
+            LEFT JOIN [dbo].[Users] U ON U.Id = AT.UserId
+            ${whereSql}
+            ORDER BY AT.CreatedAt DESC
+            OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY
+        `;
+        const cq = `
+            SELECT COUNT(*) AS total
+            FROM [dbo].[AuditTrail] AT
+            LEFT JOIN [dbo].[Users] U ON U.Id = AT.UserId
+            ${whereSql}
+        `;
+        const [rs, crs] = await Promise.all([database.query(q, params), database.query(cq, params)]);
+        const rows = (rs.recordset || []).map(r => ({
+            id: r.id,
+            userId: r.userId,
+            userName: r.userName,
+            userEmail: r.userEmail,
+            action: r.action,
+            entityType: r.entityType,
+            entityId: r.entityId,
+            oldValues: r.oldValues,
+            newValues: r.newValues,
+            ipAddress: r.ipAddress,
+            userAgent: r.userAgent,
+            details: r.details,
+            createdAt: r.createdAt,
+        }));
+        const total = crs?.recordset?.[0]?.total ?? rows.length;
+        res.json({ success: true, rows, total });
+    } catch (error) {
+        res.status(500).json({ success: false, error: 'Failed to list audit trail', details: error.message });
+    }
+});
+
+app.get('/api/audit-trail/export', auth.requireAuth, auth.requireAdmin, async (req, res) => {
+    try {
+        const search = String(req.query.search || '').trim();
+        const start = String(req.query.start || '').trim();
+        const end = String(req.query.end || '').trim();
+        const limit = Math.max(1, Math.min(10000, parseInt(String(req.query.limit || '1000'), 10) || 1000));
+        const whereClauses = [];
+        const params = { limit };
+        if (search) {
+            whereClauses.push(`(
+                AT.Action LIKE '%' + @search + '%' OR
+                AT.EntityType LIKE '%' + @search + '%' OR
+                CONVERT(NVARCHAR(36), AT.EntityId) LIKE '%' + @search + '%' OR
+                AT.IpAddress LIKE '%' + @search + '%' OR
+                AT.UserAgent LIKE '%' + @search + '%' OR
+                AT.Details LIKE '%' + @search + '%' OR
+                AT.OldValues LIKE '%' + @search + '%' OR
+                AT.NewValues LIKE '%' + @search + '%' OR
+                U.Username LIKE '%' + @search + '%' OR
+                U.Email LIKE '%' + @search + '%'
+            )`);
+            params.search = search;
+        }
+        if (start) { whereClauses.push(`AT.CreatedAt >= @start`); params.start = new Date(start); }
+        if (end) { whereClauses.push(`AT.CreatedAt <= @end`); params.end = new Date(end); }
+        const whereSql = whereClauses.length ? `WHERE ${whereClauses.join(' AND ')}` : '';
+        const q = `
+            SELECT TOP (@limit)
+                AT.CreatedAt,
+                U.Username,
+                U.Email,
+                AT.Action,
+                AT.EntityType,
+                AT.EntityId,
+                AT.IpAddress,
+                AT.UserAgent,
+                AT.Details,
+                AT.OldValues,
+                AT.NewValues
+            FROM [dbo].[AuditTrail] AT
+            LEFT JOIN [dbo].[Users] U ON U.Id = AT.UserId
+            ${whereSql}
+            ORDER BY AT.CreatedAt DESC
+        `;
+        const rs = await database.query(q, params);
+        const rows = rs.recordset || [];
+        const header = ['CreatedAt','Username','Email','Action','EntityType','EntityId','IpAddress','UserAgent','Details','OldValues','NewValues'];
+        const escape = (v) => {
+            const s = v === null || v === undefined ? '' : String(v);
+            const t = s.replace(/"/g, '""').replace(/\r|\n/g, ' ');
+            return `"${t}"`;
+        };
+        let csv = header.join(',') + '\n';
+        for (const r of rows) {
+            csv += [r.CreatedAt, r.Username, r.Email, r.Action, r.EntityType, r.EntityId, r.IpAddress, r.UserAgent, r.Details, r.OldValues, r.NewValues]
+                .map(escape).join(',') + '\n';
+        }
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', 'attachment; filename="audit-trail.csv"');
+        res.send(csv);
+    } catch (error) {
+        res.status(500).json({ success: false, error: 'Failed to export audit trail', details: error.message });
+    }
+});
 
 // 404 catch-all (must be last)
 app.use('*', (req, res) => {

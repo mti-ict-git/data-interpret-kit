@@ -92,9 +92,19 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ title, children }) => {
             {currentUser?.role === 'Admin' && (
               <SidebarMenuItem>
                 <Link to="/users" className="contents">
-                  <SidebarMenuButton isActive={isActive("/users")}> 
+                  <SidebarMenuButton isActive={isActive("/users")}>
                     <Users />
                     <span>User Management</span>
+                  </SidebarMenuButton>
+                </Link>
+              </SidebarMenuItem>
+            )}
+            {currentUser?.role === 'Admin' && (
+              <SidebarMenuItem>
+                <Link to="/activity-log" className="contents">
+                  <SidebarMenuButton isActive={isActive("/activity-log")}>
+                    <Users />
+                    <span>Activity Log</span>
                   </SidebarMenuButton>
                 </Link>
               </SidebarMenuItem>

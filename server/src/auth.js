@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const userStore = require('./userStore');
+const database = require('./database');
 
 const SECRET = process.env.APP_SECRET || 'dev-secret';
 const sessions = new Map();
@@ -56,6 +57,7 @@ async function login(req, res) {
     sessions.set(token, { uid: u.id, exp: Date.now() + TTL_MS });
     setAuthCookie(res, token);
     const safe = { id: u.id, name: u.name, email: u.email, role: u.role, status: u.status };
+    try { await recordAudit(req, { action: 'AUTH_LOGIN', entityType: 'Auth', entityId: u.id, details: { email } }); } catch {}
     res.json({ success: true, user: safe });
   } catch (err) {
     res.status(500).json({ success: false, error: 'login failed', details: err.message });
@@ -105,6 +107,7 @@ function logout(req, res) {
   const token = cookies.auth_token;
   if (token) sessions.delete(token);
   clearAuthCookie(res);
+  try { recordAudit(req, { action: 'AUTH_LOGOUT', entityType: 'Auth', entityId: null }); } catch {}
   res.json({ success: true });
 }
 
@@ -127,3 +130,15 @@ function requireAdmin(req, res, next) {
 }
 
 module.exports = { login, logout, me, signup, requireAuth, requireAdmin };
+async function recordAudit(req, { action, entityType, entityId, details }) {
+  try {
+    const userId = entityType === 'Auth' ? (entityId || null) : (req?.user?.id || null);
+    const ip = (req.headers['x-forwarded-for'] ? String(req.headers['x-forwarded-for']).split(',')[0] : req.ip) || null;
+    const ua = req.headers['user-agent'] || null;
+    const q = `INSERT INTO [dbo].[AuditTrail] (Id, UserId, Action, EntityType, EntityId, OldValues, NewValues, IpAddress, UserAgent, Details, CreatedAt)
+               VALUES (NEWID(), @userId, @action, @entityType, @entityId, NULL, NULL, @ipAddress, @userAgent, @details, SYSUTCDATETIME())`;
+    await database.query(q, { userId, action, entityType, entityId, ipAddress: ip, userAgent: ua ? String(ua).slice(0, 500) : null, details: details ? (typeof details === 'string' ? details : JSON.stringify(details)) : null });
+  } catch (err) {
+    console.warn('[AuditTrail] auth record failed:', err?.message || err);
+  }
+}

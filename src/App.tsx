@@ -42,6 +42,7 @@ const App = () => (
           <Route path="/" element={<Navigate to="/card-processor" replace />} />
           <Route path="/register-vault" element={<RequireAuth><RegisterVault /></RequireAuth>} />
           <Route path="/update-vault" element={<RequireAuth><UpdateVaultCard /></RequireAuth>} />
+          <Route path="/activity-log" element={<RequireAuth><ActivityLog /></RequireAuth>} />
           <Route path="/users" element={<RequireAuth><UserManagement /></RequireAuth>} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
@@ -52,3 +53,4 @@ const App = () => (
 );
 
 export default App;
+import ActivityLog from "./pages/ActivityLog";
