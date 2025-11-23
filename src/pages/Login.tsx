@@ -42,15 +42,23 @@ const Login: React.FC = () => {
           <CardDescription>Enter your email and password to continue</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div>
-            <label className="text-sm font-medium">Email</label>
-            <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
-          </div>
-          <div>
-            <label className="text-sm font-medium">Password</label>
-            <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
-          </div>
-          <Button className="w-full" onClick={onSubmit} disabled={loading || !email || !password}>{loading ? 'Signing in…' : 'Sign In'}</Button>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!loading && email && password) onSubmit();
+            }}
+            className="space-y-4"
+          >
+            <div>
+              <label className="text-sm font-medium">Email</label>
+              <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+            </div>
+            <div>
+              <label className="text-sm font-medium">Password</label>
+              <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+            </div>
+            <Button type="submit" className="w-full" disabled={loading || !email || !password}>{loading ? 'Signing in…' : 'Sign In'}</Button>
+          </form>
         </CardContent>
       </Card>
     </div>

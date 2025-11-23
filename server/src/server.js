@@ -1183,6 +1183,7 @@ app.post('/api/vault/update-card-db', async (req, res) => {
         const endpoint = endpointBaseUrl || process.env.VAULT_API_BASE || 'http://10.60.10.6/Vaultsite/APIwebservice.asmx';
         const resp = await updateProfileToVault({ profile, endpointBaseUrl: endpoint, outputDir });
         const success = !!resp.ok;
+        try { await recordAudit(req, { action: 'VAULT_UPDATE_CARD_DB', entityType: 'Card', entityId: profile.CardNo, details: { success, code: resp.code, message: resp.message, requestId: resp.requestId } }); } catch {}
         res.json({ success, code: resp.code, message: resp.message, requestId: resp.requestId, profile });
     } catch (error) {
         console.error('Error updating Vault card from DB:', error);

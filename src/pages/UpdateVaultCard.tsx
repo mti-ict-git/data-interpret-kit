@@ -376,7 +376,7 @@ const UpdateVaultCard: React.FC = () => {
             });
             if (j.completed) stopPolling = true;
           }
-        } catch {}
+        } catch (e) { console.warn(e); }
       };
       const pollId = window.setInterval(poll, 1000);
       const res = await fetch(`/api/vault/update-csv`, {
@@ -412,7 +412,7 @@ const UpdateVaultCard: React.FC = () => {
           }
           return next;
         });
-      } catch {}
+      } catch (e) { console.warn(e); }
       const clientSkipped = (all.length - valid.length);
       const summary: VaultRegistrationSummary = {
         success: true,
