@@ -89,7 +89,7 @@ const UpdateVaultCard: React.FC = () => {
   const [cardNoEdits, setCardNoEdits] = useState<Record<number, string>>({});
   const [photoChecks, setPhotoChecks] = useState<Record<number, boolean>>({});
   const [downloadCardEdits, setDownloadCardEdits] = useState<Record<number, boolean>>({});
-  const [rowStatusMap, setRowStatusMap] = useState<Record<number, { state: 'idle' | 'executing' | 'success' | 'failed', code?: string, message?: string, requestId?: string, durationMs?: number }>>({});
+  const [rowStatusMap, setRowStatusMap] = useState<Record<number, { state: 'idle' | 'executing' | 'success' | 'failed', code?: string, message?: string, requestId?: string, durationMs?: number, cardNo?: string, startedAt?: number }>>({});
   const [uploadedUpdatePath, setUploadedUpdatePath] = useState<string | undefined>();
   const [uploadingUpdate, setUploadingUpdate] = useState(false);
   const [csvUpdatePathInput, setCsvUpdatePathInput] = useState<string>("");
