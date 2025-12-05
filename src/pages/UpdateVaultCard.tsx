@@ -785,28 +785,28 @@ const formatDateOnly = (v: unknown) => {
               <input type="checkbox" checked={filteredSelectedCount === filteredCardDbRows.length && filteredCardDbRows.length > 0} onChange={(e) => toggleSelectAllFiltered(e.target.checked)} />
               <span className="text-xs text-muted-foreground">Select all results</span>
             </div>
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-sm">
+            <div className="overflow-auto max-h-[70vh]">
+              <table className="min-w-full text-sm table-fixed">
                 <thead>
                   <tr className="text-left border-b">
-                    <th className="py-2 pr-4">
+                    <th className="py-2 pr-4 sticky top-0 bg-background w-8">
                       <div className="flex items-center">
                         <input type="checkbox" checked={visibleSelectedCount === pagedCardDbRows.length && pagedCardDbRows.length > 0} onChange={(e) => toggleSelectAllVisible(e.target.checked)} />
                       </div>
                     </th>
-                    <th className="py-2 pr-4">Card No</th>
-                    <th className="py-2 pr-4">Name</th>
-                    <th className="py-2 pr-4">Staff No</th>
-                    <th className="py-2 pr-4">Vehicle No</th>
-                    <th className="py-2 pr-4">Due Day</th>
-                    <th className="py-2 pr-4">Expiry Date</th>
-                    <th className="py-2 pr-4">Status</th>
-                    <th className="py-2 pr-4">Department</th>
-                    <th className="py-2 pr-4">Company</th>
-                    <th className="py-2 pr-4">Access</th>
-                    <th className="py-2 pr-4">Lift</th>
-                    <th className="py-2 pr-4">Face</th>
-                    <th className="py-2 pr-4">Download Status</th>
+                    <th className="py-2 pr-4 sticky top-0 bg-background w-32">Card No</th>
+                    <th className="py-2 pr-4 sticky top-0 bg-background w-52">Name</th>
+                    <th className="py-2 pr-4 sticky top-0 bg-background w-20">Staff No</th>
+                    <th className="py-2 pr-4 sticky top-0 bg-background w-40">Vehicle No</th>
+                    <th className="py-2 pr-4 sticky top-0 bg-background w-20">Due Day</th>
+                    <th className="py-2 pr-4 sticky top-0 bg-background w-24">Expiry Date</th>
+                    <th className="py-2 pr-4 sticky top-0 bg-background w-20">Status</th>
+                    <th className="py-2 pr-4 sticky top-0 bg-background w-56">Department</th>
+                    <th className="py-2 pr-4 sticky top-0 bg-background w-56">Company</th>
+                    <th className="py-2 pr-4 sticky top-0 bg-background w-16">Access</th>
+                    <th className="py-2 pr-4 sticky top-0 bg-background w-14">Lift</th>
+                    <th className="py-2 pr-4 sticky top-0 bg-background w-14">Face</th>
+                    <th className="py-2 pr-4 sticky top-0 bg-background">Download Status</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -824,20 +824,20 @@ const formatDateOnly = (v: unknown) => {
                       const color = st === 'success' ? 'text-green-600' : st === 'failed' ? 'text-red-600' : st === 'executing' ? 'text-blue-600' : 'text-muted-foreground';
                       return (
                         <tr key={`${cn}-${idx}`} className="border-b">
-                          <td className="py-2 pr-4">
+                          <td className="py-2 pr-4 w-8">
                             <input
                               type="checkbox"
                               checked={!!isChecked}
                               onChange={(e) => setCardDbSelected((prev) => ({ ...prev, [cn]: e.target.checked }))}
                             />
                           </td>
-                          <td className="py-2 pr-4 font-mono">{cn || '-'}</td>
-                          <td className="py-2 pr-4">{(r.Name ?? '') as string || '-'}</td>
-                          <td className="py-2 pr-4">{(r.StaffNo ?? '') as string || '-'}</td>
-                          <td className="py-2 pr-4">{(r.VehicleNo ?? '') as string || '-'}</td>
-                          <td className="py-2 pr-4">{r.DueDay !== undefined && r.DueDay !== null ? String(r.DueDay) : '-'}</td>
-                          <td className="py-2 pr-4">{formatDateOnly(r.ExpiryDate) || '-'}</td>
-                          <td className="py-2 pr-4">
+                          <td className="py-2 pr-4 w-32 font-mono whitespace-nowrap">{cn || '-'}</td>
+                          <td className="py-2 pr-4 w-52 truncate" title={(r.Name ?? '') as string}>{(r.Name ?? '') as string || '-'}</td>
+                          <td className="py-2 pr-4 w-20 whitespace-nowrap">{(r.StaffNo ?? '') as string || '-'}</td>
+                          <td className="py-2 pr-4 w-40 truncate" title={(r.VehicleNo ?? '') as string}>{(r.VehicleNo ?? '') as string || '-'}</td>
+                          <td className="py-2 pr-4 w-20 whitespace-nowrap">{r.DueDay !== undefined && r.DueDay !== null ? String(r.DueDay) : '-'}</td>
+                          <td className="py-2 pr-4 w-24 whitespace-nowrap">{formatDateOnly(r.ExpiryDate) || '-'}</td>
+                          <td className="py-2 pr-4 w-20 whitespace-nowrap">
                             {(() => {
                               const s = normalizeStatus(r);
                               if (!s) return '-';
@@ -850,11 +850,11 @@ const formatDateOnly = (v: unknown) => {
                               return <Badge variant="default">{s}</Badge>;
                             })()}
                           </td>
-                          <td className="py-2 pr-4">{(r.Department ?? '') as string || '-'}</td>
-                          <td className="py-2 pr-4">{(r.Company ?? '') as string || '-'}</td>
-                          <td className="py-2 pr-4">{(r.AccessLevel ?? '') as string || '-'}</td>
-                          <td className="py-2 pr-4">{(r.LiftAccessLevel ?? '') as string || '-'}</td>
-                          <td className="py-2 pr-4">{(r.FaceAccessLevel ?? '') as string || '-'}</td>
+                          <td className="py-2 pr-4 w-56 truncate" title={(r.Department ?? '') as string}>{(r.Department ?? '') as string || '-'}</td>
+                          <td className="py-2 pr-4 w-56 truncate" title={(r.Company ?? '') as string}>{(r.Company ?? '') as string || '-'}</td>
+                          <td className="py-2 pr-4 w-16 text-center whitespace-nowrap">{(r.AccessLevel ?? '') as string || '-'}</td>
+                          <td className="py-2 pr-4 w-14 text-center whitespace-nowrap">{(r.LiftAccessLevel ?? '') as string || '-'}</td>
+                          <td className="py-2 pr-4 w-14 text-center whitespace-nowrap">{(r.FaceAccessLevel ?? '') as string || '-'}</td>
                           <td className="py-2 pr-4">
                             <div className={`text-xs ${color} max-w-xs whitespace-normal break-words`}>
                               {st === 'idle' && 'Idle'}
