@@ -308,6 +308,22 @@ const statusOptions = useMemo(() => {
   return Array.from(set).sort((a, b) => a.localeCompare(b));
 }, [cardDbRows]);
 
+const formatDateOnly = (v: unknown) => {
+  if (v === undefined || v === null) return '';
+  const s = String(v).trim();
+  if (!s) return '';
+  const m = s.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (m) return m[1];
+  const d = new Date(s);
+  if (!isNaN(d.getTime())) {
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  }
+  return s;
+};
+
   const accessOptions = useMemo(() => {
     const set = new Set<string>();
     for (const r of cardDbRows) {
@@ -820,7 +836,7 @@ const statusOptions = useMemo(() => {
                           <td className="py-2 pr-4">{(r.StaffNo ?? '') as string || '-'}</td>
                           <td className="py-2 pr-4">{(r.VehicleNo ?? '') as string || '-'}</td>
                           <td className="py-2 pr-4">{r.DueDay !== undefined && r.DueDay !== null ? String(r.DueDay) : '-'}</td>
-                          <td className="py-2 pr-4">{(r.ExpiryDate ?? '') as string || '-'}</td>
+                          <td className="py-2 pr-4">{formatDateOnly(r.ExpiryDate) || '-'}</td>
                           <td className="py-2 pr-4">
                             {(() => {
                               const s = normalizeStatus(r);
