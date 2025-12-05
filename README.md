@@ -1,90 +1,90 @@
-# ID Card Processor
+# EA Falco Dashboard – ID Card Processor
 
-## Project info
+## Overview
 
-**URL**: https://lovable.dev/projects/6f543ba1-7ba3-4a8f-b536-2dbd5755b18e
-
-## About
-
-ID Card Processor is a comprehensive application for processing and analyzing ID card images. It features:
-
-- **File Upload**: Support for multiple image formats and Excel files
-- **Image Processing**: Advanced ID card preprocessing using Python scripts
-- **Processing Modes**: Images only or combined images and Excel processing
-- **Real-time Status**: Live updates on processing progress
-- **Download Results**: Easy access to processed files
+ID Card Processor is a full-stack web app for managing and updating ID card data, processing card photos, and integrating with a Vault API for card registration and updates.
 
 ## Architecture
 
-- **Frontend**: React + Vite + TailwindCSS + Shadcn UI
-- **Backend**: Node.js + Express
-- **Processing Engine**: Python script integration
-- **File Management**: Multer for uploads, organized session-based storage
+- Frontend: React + Vite + TailwindCSS + Shadcn UI
+- Backend: Node.js + Express
+- Processing: Python integration via backend
+- Storage: Session-based upload/output folders; SQL Server for app data and audit trail
 
-## How can I edit this code?
+## Quick Start (Docker Compose)
 
-There are several ways of editing your application.
-
-**Use Lovable**
-
-Simply visit the [Lovable Project](https://lovable.dev/projects/6f543ba1-7ba3-4a8f-b536-2dbd5755b18e) and start prompting.
-
-Changes made via Lovable will be committed automatically to this repo.
-
-**Use your preferred IDE**
-
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
-
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
+Prerequisites: Docker Desktop installed and running.
 
 ```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
+# From project root
+docker compose build
+docker compose up -d
 
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
+# Frontend URL
+open http://localhost:9011
 
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
+# Backend health
+curl http://localhost:3005/api/health
 ```
 
-**Edit a file directly in GitHub**
+- Frontend container: `data-processor-frontend` (exposes `http://localhost:9011`)
+- Backend container: `data-processor-backend` (exposes `http://localhost:3005` → internal `3001`)
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+## Configuration (server/.env)
 
-**Use GitHub Codespaces**
+Create `server/.env` with your environment values:
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+```env
+# Application DB (preferred) or Data DB (fallback)
+APPDB_SERVER=your-sql-host
+APPDB_NAME=your-db-name
+APPDB_USER=your-db-user
+APPDB_PASSWORD=your-db-password
+APPDB_PORT=1433
 
-## What technologies are used for this project?
+# Fallback if APPDB_* not set
+DATADB_SERVER=your-sql-host
+DATADB_NAME=your-db-name
+DATADB_USER=your-db-user
+DATADB_PASSWORD=your-db-password
+DATADB_PORT=1433
 
-This project is built with:
+# Auth/session
+APP_SECRET=change-this-secret
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+# Vault API endpoint
+VAULT_API_BASE=http://10.60.10.6/Vaultsite/APIwebservice.asmx
 
-## How can I deploy this project?
+# Optional audit retention
+AUDIT_RETENTION_DAYS=90
+AUDIT_ARCHIVE=false
+```
 
-Simply open [Lovable](https://lovable.dev/projects/6f543ba1-7ba3-4a8f-b536-2dbd5755b18e) and click on Share -> Publish.
+## Local Development (without Docker)
 
-## Can I connect a custom domain to my Lovable project?
+```sh
+# Frontend
+npm install
+npm run dev
 
-Yes, you can!
+# Backend (in server/)
+cd server
+npm install
+npm run start
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
+# Open UI
+open http://localhost:5173
+```
 
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+## Features
+
+- File upload of images and Excel/CSV
+- Preview and batch register/update cards to Vault
+- CardDB filtering by department, status, access, vehicle number
+- Activity log with audit trail
+
+## Tech Stack
+
+- Vite, TypeScript, React
+- TailwindCSS, Shadcn UI
+- Node.js, Express, MSSQL
