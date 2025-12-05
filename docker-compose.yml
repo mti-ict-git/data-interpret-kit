@@ -5,7 +5,7 @@ services:
     build:
       context: ./server
       dockerfile: Dockerfile
-    container_name: data-interpret-backend
+    container_name: data-processor-backend
     env_file:
       - ./server/.env
     ports:
@@ -22,7 +22,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.frontend
-    container_name: data-interpret-frontend
+    container_name: data-processor-frontend
     depends_on:
       - backend
     ports:
