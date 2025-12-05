@@ -112,15 +112,27 @@ function logout(req, res) {
 }
 
 async function requireAuth(req, res, next) {
-  const cookies = parseCookies(req);
-  const token = cookies.auth_token;
-  const payload = verify(token);
-  const sess = sessions.get(token);
-  if (!payload || !sess || sess.exp < Date.now()) return res.status(401).json({ success: false, error: 'not authenticated' });
-  const user = await userStore.getUser(sess.uid);
-  if (!user) return res.status(401).json({ success: false, error: 'not authenticated' });
-  req.user = user;
-  next();
+  try {
+    const cookies = parseCookies(req);
+    const token = cookies.auth_token;
+    const payload = verify(token);
+    const sess = sessions.get(token);
+    if (!payload || !sess || sess.exp < Date.now()) {
+      return res.status(401).json({ success: false, error: 'not authenticated' });
+    }
+    let user = null;
+    try {
+      user = await userStore.getUser(sess.uid);
+    } catch (err) {
+      console.warn('[Auth] getUser failed:', err?.message || err);
+      return res.status(401).json({ success: false, error: 'not authenticated' });
+    }
+    if (!user) return res.status(401).json({ success: false, error: 'not authenticated' });
+    req.user = user;
+    next();
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'auth check failed', details: err.message });
+  }
 }
 
 function requireAdmin(req, res, next) {

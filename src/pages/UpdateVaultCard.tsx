@@ -70,6 +70,7 @@ type CardDbRow = {
   ExpiryDate?: string;
   Status?: string;
   Department?: string;
+  Company?: string;
   AccessLevel?: string;
   LiftAccessLevel?: string;
   FaceAccessLevel?: string;
@@ -108,6 +109,7 @@ const UpdateVaultCard: React.FC = () => {
   const [cardDbDeptFilter, setCardDbDeptFilter] = useState<string>('ALL');
   const [cardDbStatusFilter, setCardDbStatusFilter] = useState<string>('ALL');
   const [cardDbAccessFilter, setCardDbAccessFilter] = useState<string>('ALL');
+  const [cardDbVehicleFilter, setCardDbVehicleFilter] = useState<string>('ALL');
   const [cardDbPage, setCardDbPage] = useState<number>(1);
   const [cardDbPageSize, setCardDbPageSize] = useState<number>(10);
 
@@ -249,13 +251,22 @@ const UpdateVaultCard: React.FC = () => {
     }, 400);
     return () => window.clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cardDbSearch, cardDbDeptFilter, cardDbStatusFilter, cardDbAccessFilter]);
+  }, [cardDbSearch, cardDbDeptFilter, cardDbStatusFilter, cardDbAccessFilter, cardDbVehicleFilter]);
 
   const deptOptions = useMemo(() => {
     const set = new Set<string>();
     for (const r of cardDbRows) {
       const d = (r.Department ?? '') as string;
       if (d && String(d).trim()) set.add(String(d).trim());
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [cardDbRows]);
+
+  const vehicleOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const r of cardDbRows) {
+      const v = (r.VehicleNo ?? '') as string;
+      if (v && String(v).trim()) set.add(String(v).trim());
     }
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [cardDbRows]);
@@ -311,9 +322,10 @@ const statusOptions = useMemo(() => {
       const depOk = cardDbDeptFilter === 'ALL' || String(r.Department ?? '').trim() === cardDbDeptFilter;
       const statusOk = cardDbStatusFilter === 'ALL' || normalizeStatus(r) === cardDbStatusFilter;
       const accessOk = cardDbAccessFilter === 'ALL' || String(r.AccessLevel ?? '').trim() === cardDbAccessFilter;
-      return depOk && statusOk && accessOk;
+      const vehicleOk = cardDbVehicleFilter === 'ALL' || String(r.VehicleNo ?? '').trim() === cardDbVehicleFilter;
+      return depOk && statusOk && accessOk && vehicleOk;
     });
-  }, [cardDbRows, cardDbDeptFilter, cardDbStatusFilter, cardDbAccessFilter]);
+  }, [cardDbRows, cardDbDeptFilter, cardDbStatusFilter, cardDbAccessFilter, cardDbVehicleFilter]);
 
   const totalPages = useMemo(() => {
     const n = filteredCardDbRows.length;
@@ -328,7 +340,7 @@ const statusOptions = useMemo(() => {
 
   useEffect(() => {
     setCardDbPage(1);
-  }, [cardDbSearch, cardDbDeptFilter, cardDbStatusFilter, cardDbAccessFilter]);
+  }, [cardDbSearch, cardDbDeptFilter, cardDbStatusFilter, cardDbAccessFilter, cardDbVehicleFilter]);
 
   const visibleSelectedCount = useMemo(() => {
     return pagedCardDbRows.reduce((acc, r) => {
@@ -729,6 +741,20 @@ const statusOptions = useMemo(() => {
                   </SelectContent>
                 </Select>
               </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Vehicle No</label>
+                <Select value={cardDbVehicleFilter} onValueChange={setCardDbVehicleFilter}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="All vehicles" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ALL">All</SelectItem>
+                    {vehicleOptions.map((v) => (
+                      <SelectItem key={v} value={v}>{v}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
               {/* Table is hard-coded on server; removed from UI */}
               <div className="flex items-end gap-2">
                 <Button variant="outline" onClick={fetchCardDb} disabled={cardDbLoading} className="w-full sm:w-auto">
@@ -748,9 +774,8 @@ const statusOptions = useMemo(() => {
                 <thead>
                   <tr className="text-left border-b">
                     <th className="py-2 pr-4">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center">
                         <input type="checkbox" checked={visibleSelectedCount === pagedCardDbRows.length && pagedCardDbRows.length > 0} onChange={(e) => toggleSelectAllVisible(e.target.checked)} />
-                        <span className="text-xs text-muted-foreground">Select page</span>
                       </div>
                     </th>
                     <th className="py-2 pr-4">Card No</th>
@@ -761,6 +786,7 @@ const statusOptions = useMemo(() => {
                     <th className="py-2 pr-4">Expiry Date</th>
                     <th className="py-2 pr-4">Status</th>
                     <th className="py-2 pr-4">Department</th>
+                    <th className="py-2 pr-4">Company</th>
                     <th className="py-2 pr-4">Access</th>
                     <th className="py-2 pr-4">Lift</th>
                     <th className="py-2 pr-4">Face</th>
@@ -809,6 +835,7 @@ const statusOptions = useMemo(() => {
                             })()}
                           </td>
                           <td className="py-2 pr-4">{(r.Department ?? '') as string || '-'}</td>
+                          <td className="py-2 pr-4">{(r.Company ?? '') as string || '-'}</td>
                           <td className="py-2 pr-4">{(r.AccessLevel ?? '') as string || '-'}</td>
                           <td className="py-2 pr-4">{(r.LiftAccessLevel ?? '') as string || '-'}</td>
                           <td className="py-2 pr-4">{(r.FaceAccessLevel ?? '') as string || '-'}</td>

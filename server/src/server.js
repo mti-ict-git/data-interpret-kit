@@ -828,6 +828,7 @@ app.get('/api/vault/carddb', async (req, res) => {
             addIf('Status', 'Status');
             addIf('Del_State', 'Del_State');
             addIf('Department', 'Department');
+            addIf('Company', 'Company'); addIf('COMPANY', 'Company');
             addIf('AccessLevel', 'AccessLevel');
             addIf('LiftAccessLevel', 'LiftAccessLevel');
             addIf('FaceAccessLevel', 'FaceAccessLevel');
