@@ -1,5 +1,29 @@
 # Development Journal
 
+## 2025-12-05 - CardDB Table UX Tune, README Cleanup
+
+### UI/UX Improvements
+- Download Card Menu (CardDB) table layout tightened and made more readable.
+- Sticky header uses theme background (`bg-background`) for better contrast.
+- Increased viewport scrolling area to show more rows, then adjusted per request to `max-h-[70vh]`.
+- Column widths refined for dense display; key fields set to non-wrapping; text truncation with hover `title` for long values.
+
+### Frontend Changes
+- `src/pages/UpdateVaultCard.tsx`: sticky header, widths and truncation, table container scrolling.
+- Status badges keep blue/pink outline visual; `Expiry Date` shows date-only.
+- Includes Vehicle No filter and Company column in CardDB.
+
+### Docs & Config
+- `README.md`: removed Lovable references, added Docker Compose quick start and server `.env` template.
+- `docker-compose.yml`: container names updated to `data-processor-frontend` and `data-processor-backend`; backend exposed on `3005`.
+
+### Backend Stability
+- `server/src/server.js`: CardDB query includes `Del_State` and `Company` projection.
+- `server/src/auth.js`: hardened auth to avoid crash when `Users` table missing.
+
+### Notes
+- Lint run shows existing warnings/errors unrelated to UI tweaks; no new issues introduced by these changes.
+
 ## 2025-11-03 11:06 AM - SQL Server Database Integration Complete ✅
 
 ### Major Achievement
