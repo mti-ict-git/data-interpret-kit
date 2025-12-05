@@ -2,11 +2,13 @@ import React, { useEffect, useMemo, useState } from "react";
 import AppLayout from "@/components/AppLayout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import { Switch } from "@/components/ui/switch";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 type VaultRegistrationError = {
   code?: string;
@@ -72,6 +74,8 @@ type CardDbRow = {
   LiftAccessLevel?: string;
   FaceAccessLevel?: string;
   ActiveStatus?: string | boolean;
+  Del_State?: number | string | boolean;
+  del_state?: number | string | boolean;
   [key: string]: unknown;
 };
 
@@ -98,10 +102,14 @@ const UpdateVaultCard: React.FC = () => {
   const [cardDbRows, setCardDbRows] = useState<CardDbRow[]>([]);
   const [cardDbLoading, setCardDbLoading] = useState<boolean>(false);
   const [cardDbSearch, setCardDbSearch] = useState<string>("");
-  const [cardDbLimit, setCardDbLimit] = useState<number>(200);
   // Table is hard-coded server-side; remove client control
   const [cardDbSelected, setCardDbSelected] = useState<Record<string, boolean>>({});
   const [cardDbRowStatus, setCardDbRowStatus] = useState<Record<string, { state: 'idle' | 'executing' | 'success' | 'failed', code?: string, message?: string, startedAt?: number }>>({});
+  const [cardDbDeptFilter, setCardDbDeptFilter] = useState<string>('ALL');
+  const [cardDbStatusFilter, setCardDbStatusFilter] = useState<string>('ALL');
+  const [cardDbAccessFilter, setCardDbAccessFilter] = useState<string>('ALL');
+  const [cardDbPage, setCardDbPage] = useState<number>(1);
+  const [cardDbPageSize, setCardDbPageSize] = useState<number>(10);
 
   // Single-card update from DB section state
   const [dbCardNo, setDbCardNo] = useState<string>("");
@@ -211,7 +219,7 @@ const UpdateVaultCard: React.FC = () => {
       setCardDbLoading(true);
       const qs = new URLSearchParams();
       if (cardDbSearch.trim()) qs.set('search', cardDbSearch.trim());
-      if (cardDbLimit) qs.set('limit', String(cardDbLimit));
+      qs.set('all', 'true');
       // Table is fixed to carddb on server; no client-provided table
       const res = await fetch(`/api/vault/carddb?${qs.toString()}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -235,16 +243,119 @@ const UpdateVaultCard: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      fetchCardDb();
+    }, 400);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cardDbSearch, cardDbDeptFilter, cardDbStatusFilter, cardDbAccessFilter]);
+
+  const deptOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const r of cardDbRows) {
+      const d = (r.Department ?? '') as string;
+      if (d && String(d).trim()) set.add(String(d).trim());
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [cardDbRows]);
+
+const normalizeStatus = (r: CardDbRow) => {
+  const norm = (x: unknown): 'Active' | 'Inactive' | undefined => {
+    if (x === undefined || x === null) return undefined;
+    const v = String(x).toLowerCase().trim();
+    if (v === '-') return 'Inactive';
+    if (v === '1' || v === 'true') return 'Active';
+    if (v === '0' || v === 'false') return 'Inactive';
+    return undefined;
+  };
+  const sNorm = norm(r.Status);
+  const dNorm = norm(r.Del_State ?? r.del_state);
+  const aNorm = norm(r.ActiveStatus);
+
+  if (sNorm === 'Inactive' && dNorm === 'Inactive') return 'Inactive';
+
+  if (dNorm === 'Active' || sNorm === 'Active' || aNorm === 'Active') return 'Active';
+
+  if (sNorm) return sNorm;
+  if (dNorm) return dNorm;
+  if (aNorm) return aNorm;
+
+  const raw = r.Status;
+  return raw !== undefined && raw !== null ? String(raw).trim() : '';
+};
+
+const statusOptions = useMemo(() => {
+  const set = new Set<string>();
+  // Always include explicit options
+  set.add('Active');
+  set.add('Inactive');
+  for (const r of cardDbRows) {
+    const s = normalizeStatus(r);
+    if (s) set.add(s);
+  }
+  return Array.from(set).sort((a, b) => a.localeCompare(b));
+}, [cardDbRows]);
+
+  const accessOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const r of cardDbRows) {
+      const a = (r.AccessLevel ?? '') as string;
+      if (a && String(a).trim()) set.add(String(a).trim());
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [cardDbRows]);
+
+  const filteredCardDbRows = useMemo(() => {
+    return cardDbRows.filter((r) => {
+      const depOk = cardDbDeptFilter === 'ALL' || String(r.Department ?? '').trim() === cardDbDeptFilter;
+      const statusOk = cardDbStatusFilter === 'ALL' || normalizeStatus(r) === cardDbStatusFilter;
+      const accessOk = cardDbAccessFilter === 'ALL' || String(r.AccessLevel ?? '').trim() === cardDbAccessFilter;
+      return depOk && statusOk && accessOk;
+    });
+  }, [cardDbRows, cardDbDeptFilter, cardDbStatusFilter, cardDbAccessFilter]);
+
+  const totalPages = useMemo(() => {
+    const n = filteredCardDbRows.length;
+    return Math.max(1, Math.ceil(n / cardDbPageSize));
+  }, [filteredCardDbRows, cardDbPageSize]);
+
+  const pagedCardDbRows = useMemo(() => {
+    const start = (cardDbPage - 1) * cardDbPageSize;
+    const end = start + cardDbPageSize;
+    return filteredCardDbRows.slice(start, end);
+  }, [filteredCardDbRows, cardDbPage, cardDbPageSize]);
+
+  useEffect(() => {
+    setCardDbPage(1);
+  }, [cardDbSearch, cardDbDeptFilter, cardDbStatusFilter, cardDbAccessFilter]);
+
   const visibleSelectedCount = useMemo(() => {
-    return cardDbRows.reduce((acc, r) => {
+    return pagedCardDbRows.reduce((acc, r) => {
       const cn = (r.CardNo ?? '').toString();
       return acc + (cn && cardDbSelected[cn] ? 1 : 0);
     }, 0);
-  }, [cardDbRows, cardDbSelected]);
+  }, [pagedCardDbRows, cardDbSelected]);
+
+  const filteredSelectedCount = useMemo(() => {
+    return filteredCardDbRows.reduce((acc, r) => {
+      const cn = (r.CardNo ?? '').toString();
+      return acc + (cn && cardDbSelected[cn] ? 1 : 0);
+    }, 0);
+  }, [filteredCardDbRows, cardDbSelected]);
 
   const toggleSelectAllVisible = (checked: boolean) => {
     const next: Record<string, boolean> = { ...cardDbSelected };
-    cardDbRows.forEach((r) => {
+    pagedCardDbRows.forEach((r) => {
+      const cn = (r.CardNo ?? '').toString();
+      if (cn) next[cn] = checked;
+    });
+    setCardDbSelected(next);
+  };
+
+  const toggleSelectAllFiltered = (checked: boolean) => {
+    const next: Record<string, boolean> = { ...cardDbSelected };
+    filteredCardDbRows.forEach((r) => {
       const cn = (r.CardNo ?? '').toString();
       if (cn) next[cn] = checked;
     });
@@ -571,14 +682,52 @@ const UpdateVaultCard: React.FC = () => {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-6 gap-4">
               <div className="space-y-2">
                 <label className="text-sm font-medium">Search</label>
                 <Input placeholder="Name, Card No, Staff No, Department" value={cardDbSearch} onChange={(e) => setCardDbSearch(e.target.value)} />
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium">Limit</label>
-                <Input type="number" value={cardDbLimit} onChange={(e) => setCardDbLimit(Number(e.target.value) || 0)} />
+                <label className="text-sm font-medium">Department</label>
+                <Select value={cardDbDeptFilter} onValueChange={setCardDbDeptFilter}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="All departments" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ALL">All</SelectItem>
+                    {deptOptions.map((d) => (
+                      <SelectItem key={d} value={d}>{d}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Status</label>
+                <Select value={cardDbStatusFilter} onValueChange={setCardDbStatusFilter}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="All status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ALL">All</SelectItem>
+                    {statusOptions.map((s) => (
+                      <SelectItem key={s} value={s}>{s}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Access</label>
+                <Select value={cardDbAccessFilter} onValueChange={setCardDbAccessFilter}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="All access" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ALL">All</SelectItem>
+                    {accessOptions.map((a) => (
+                      <SelectItem key={a} value={a}>{a}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               {/* Table is hard-coded on server; removed from UI */}
               <div className="flex items-end gap-2">
@@ -590,14 +739,18 @@ const UpdateVaultCard: React.FC = () => {
                 </Button>
               </div>
             </div>
+            <div className="flex items-center gap-3">
+              <input type="checkbox" checked={filteredSelectedCount === filteredCardDbRows.length && filteredCardDbRows.length > 0} onChange={(e) => toggleSelectAllFiltered(e.target.checked)} />
+              <span className="text-xs text-muted-foreground">Select all results</span>
+            </div>
             <div className="overflow-x-auto">
               <table className="min-w-full text-sm">
                 <thead>
                   <tr className="text-left border-b">
                     <th className="py-2 pr-4">
                       <div className="flex items-center gap-2">
-                        <input type="checkbox" checked={visibleSelectedCount === cardDbRows.length && cardDbRows.length > 0} onChange={(e) => toggleSelectAllVisible(e.target.checked)} />
-                        <span className="text-xs text-muted-foreground">Select all</span>
+                        <input type="checkbox" checked={visibleSelectedCount === pagedCardDbRows.length && pagedCardDbRows.length > 0} onChange={(e) => toggleSelectAllVisible(e.target.checked)} />
+                        <span className="text-xs text-muted-foreground">Select page</span>
                       </div>
                     </th>
                     <th className="py-2 pr-4">Card No</th>
@@ -615,12 +768,12 @@ const UpdateVaultCard: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {cardDbRows.length === 0 ? (
+                  {filteredCardDbRows.length === 0 ? (
                     <tr>
                       <td colSpan={13} className="py-3 text-muted-foreground">No users found</td>
                     </tr>
                   ) : (
-                    cardDbRows.map((r, idx) => {
+                    pagedCardDbRows.map((r, idx) => {
                       const cn = (r.CardNo ?? '').toString();
                       const isChecked = cn && cardDbSelected[cn];
                       const st = cardDbRowStatus[cn]?.state ?? 'idle';
@@ -642,7 +795,19 @@ const UpdateVaultCard: React.FC = () => {
                           <td className="py-2 pr-4">{(r.VehicleNo ?? '') as string || '-'}</td>
                           <td className="py-2 pr-4">{r.DueDay !== undefined && r.DueDay !== null ? String(r.DueDay) : '-'}</td>
                           <td className="py-2 pr-4">{(r.ExpiryDate ?? '') as string || '-'}</td>
-                          <td className="py-2 pr-4">{(r.Status ?? '') as string || '-'}</td>
+                          <td className="py-2 pr-4">
+                            {(() => {
+                              const s = normalizeStatus(r);
+                              if (!s) return '-';
+                              if (s === 'Active') {
+                                return <Badge variant="outline" className="border-blue-500 text-blue-600 hover:bg-blue-50">Active</Badge>;
+                              }
+                              if (s === 'Inactive') {
+                                return <Badge variant="outline" className="border-pink-500 text-pink-600 hover:bg-pink-50">Inactive</Badge>;
+                              }
+                              return <Badge variant="default">{s}</Badge>;
+                            })()}
+                          </td>
                           <td className="py-2 pr-4">{(r.Department ?? '') as string || '-'}</td>
                           <td className="py-2 pr-4">{(r.AccessLevel ?? '') as string || '-'}</td>
                           <td className="py-2 pr-4">{(r.LiftAccessLevel ?? '') as string || '-'}</td>
@@ -672,9 +837,16 @@ const UpdateVaultCard: React.FC = () => {
               </table>
             </div>
             <div className="flex items-center justify-between">
-              <div className="text-sm text-muted-foreground">Selected: {visibleSelectedCount}</div>
+              <div className="flex items-center gap-3">
+                <div className="text-sm text-muted-foreground">Selected: {filteredSelectedCount}</div>
+                <div className="text-sm text-muted-foreground">Page {cardDbPage} of {totalPages}</div>
+                <div className="flex items-center gap-2">
+                  <Button variant="outline" size="sm" onClick={() => setCardDbPage(p => Math.max(1, p - 1))} disabled={cardDbPage <= 1}>Prev</Button>
+                  <Button variant="outline" size="sm" onClick={() => setCardDbPage(p => Math.min(totalPages, p + 1))} disabled={cardDbPage >= totalPages}>Next</Button>
+                </div>
+              </div>
               <div className="flex items-center gap-2">
-                <Button onClick={handleDownloadSelectedFromCardDb} disabled={visibleSelectedCount === 0 || cardDbLoading}>
+                <Button onClick={handleDownloadSelectedFromCardDb} disabled={filteredSelectedCount === 0 || cardDbLoading}>
                   Download selected cards
                 </Button>
               </div>

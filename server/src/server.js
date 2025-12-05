@@ -741,9 +741,10 @@ app.post('/api/vault/photo-check-csv', async (req, res) => {
 
 // List CardDB users with optional filters for search and limit
 app.get('/api/vault/carddb', async (req, res) => {
-    const { q, search, limit, server: dbServer, dbName, dbUser, dbPass, dbPort } = req.query;
+    const { q, search, limit, server: dbServer, dbName, dbUser, dbPass, dbPort, all } = req.query;
     const sTerm = (search || q || '').toString().trim();
-    const topN = Math.max(1, Math.min(1000, parseInt((limit || '200').toString(), 10) || 200));
+    const topAll = String(all || '').toLowerCase() === 'true';
+    const topN = topAll ? null : Math.max(1, Math.min(1000, parseInt((limit || '200').toString(), 10) || 200));
     try {
         // Use dedicated CARDDB_* env vars for CardDB (user retrieval) and keep DATADB_* for app DB
         const config = {
@@ -763,7 +764,7 @@ app.get('/api/vault/carddb', async (req, res) => {
         console.log(`[CardDB] Connecting server=${config.server} db=${config.database} user=${config.user} port=${config.port}`);
         await sql.connect(config);
         const request = new sql.Request();
-        request.input('topN', sql.Int, topN);
+        if (!topAll) request.input('topN', sql.Int, topN);
         const envTbl = (() => {
             const schema = (process.env.CARDDB_SCHEMA || '').trim();
             const name = (process.env.CARDDB_TABLE || '').trim();
@@ -825,13 +826,14 @@ app.get('/api/vault/carddb', async (req, res) => {
             addIf('DueDay', 'DueDay');
             addIf('ExpiryDate', 'ExpiryDate'); addIf('ExpiredDate', 'ExpiryDate');
             addIf('Status', 'Status');
+            addIf('Del_State', 'Del_State');
             addIf('Department', 'Department');
             addIf('AccessLevel', 'AccessLevel');
             addIf('LiftAccessLevel', 'LiftAccessLevel');
             addIf('FaceAccessLevel', 'FaceAccessLevel');
             addIf('ActiveStatus', 'ActiveStatus');
             const selectList = selectCols.length > 0 ? selectCols.join(', ') : '*';
-            return `SELECT TOP (@topN) ${selectList} FROM ${qualified} WITH (NOLOCK) ${where}`;
+            return `SELECT ${topAll ? '' : 'TOP (@topN) '} ${selectList} FROM ${qualified} WITH (NOLOCK) ${where}`;
         };
 
         let result;
