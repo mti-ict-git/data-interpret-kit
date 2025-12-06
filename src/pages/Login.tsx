@@ -1,12 +1,12 @@
 import React, { useState } from "react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { useNavigate } from "react-router-dom";
-import { Eye, EyeOff, Loader2, Lock } from "lucide-react";
+import { Eye, EyeOff, Loader2, GalleryVerticalEnd, Mail } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 const Login: React.FC = () => {
   const { toast } = useToast();
@@ -17,6 +17,8 @@ const Login: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [remember, setRemember] = useState(false);
   const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
+  const [serverError, setServerError] = useState<string | null>(null);
+  const [capsLock, setCapsLock] = useState(false);
 
   const validate = () => {
     const nextErrors: { email?: string; password?: string } = {};
@@ -41,10 +43,12 @@ const Login: React.FC = () => {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       if (!data.success) throw new Error(data.error || 'Login failed');
+      setServerError(null);
       toast({ title: 'Login successful' });
       navigate('/card-processor');
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      setServerError(msg);
       toast({ title: 'Login failed', description: msg, variant: 'destructive' });
     } finally {
       setLoading(false);
@@ -52,91 +56,119 @@ const Login: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-4">
-      <Card className="w-full max-w-md">
-        <CardHeader>
-          <div className="flex items-center gap-2">
-            <div className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-primary text-primary-foreground">
-              <Lock className="h-5 w-5" />
+    <div className="grid min-h-svh lg:grid-cols-2">
+      <div className="flex flex-col gap-4 p-6 md:p-10">
+        <div className="flex justify-center gap-2 md:justify-start">
+          <a href="#" className="flex items-center gap-2 font-medium">
+            <div className="bg-primary text-primary-foreground flex size-6 items-center justify-center rounded-md">
+              <GalleryVerticalEnd className="size-4" />
             </div>
-            <div>
-              <CardTitle>Sign In</CardTitle>
-              <CardDescription>Access your dashboard</CardDescription>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (!loading) onSubmit();
-            }}
-            className="space-y-4"
-          >
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                autoComplete="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-              />
-              {errors.email ? (
-                <p className="text-sm text-destructive">{errors.email}</p>
-              ) : null}
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
-              <div className="relative">
-                <Input
-                  id="password"
-                  type={showPassword ? 'text' : 'password'}
-                  autoComplete="current-password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setShowPassword((v) => !v)}
-                  className="absolute right-1.5 top-1.5 h-7 w-9 px-0"
-                >
-                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </Button>
+            Data Processor.
+          </a>
+        </div>
+        <div className="flex flex-1 items-center justify-center">
+          <div className="w-full max-w-xs">
+            {serverError ? (
+              <Alert variant="destructive" className="mb-4">
+                <AlertTitle>Authentication Error</AlertTitle>
+                <AlertDescription>{serverError}</AlertDescription>
+              </Alert>
+            ) : null}
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (!loading) onSubmit();
+              }}
+              className="space-y-4"
+            >
+              <div className="space-y-2">
+                <h1 className="text-xl font-semibold">Login to your account</h1>
+                <p className="text-sm text-muted-foreground">Enter your email below to login to your account</p>
               </div>
-              {errors.password ? (
-                <p className="text-sm text-destructive">{errors.password}</p>
-              ) : null}
-            </div>
-            <div className="flex items-center justify-between">
+              <div className="space-y-2">
+                <Label htmlFor="email">Email</Label>
+                <div className="relative">
+                  <Input
+                    id="email"
+                    type="email"
+                    autoComplete="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className={errors.email ? "pl-9 border-destructive focus-visible:ring-destructive" : "pl-9"}
+                    aria-invalid={Boolean(errors.email)}
+                  />
+                  <Mail className="absolute left-2.5 top-2.5 h-5 w-5 text-muted-foreground" />
+                </div>
+                {errors.email ? (
+                  <p className="text-sm text-destructive">{errors.email}</p>
+                ) : null}
+              </div>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="password">Password</Label>
+                  <Button
+                    type="button"
+                    variant="link"
+                    className="px-0"
+                    onClick={() => toast({ title: 'Forgot password', description: 'Please contact your administrator.' })}
+                  >
+                    Forgot your password?
+                  </Button>
+                </div>
+                <div className="relative">
+                  <Input
+                    id="password"
+                    type={showPassword ? 'text' : 'password'}
+                    autoComplete="current-password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    onKeyDown={(e) => setCapsLock(e.getModifierState('CapsLock'))}
+                    onKeyUp={(e) => setCapsLock(e.getModifierState('CapsLock'))}
+                    className={errors.password ? "pr-11 border-destructive focus-visible:ring-destructive" : "pr-11"}
+                    aria-invalid={Boolean(errors.password)}
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setShowPassword((v) => !v)}
+                    className="absolute right-1.5 top-1.5 h-7 w-9 px-0"
+                  >
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </Button>
+                </div>
+                {capsLock ? (
+                  <p className="text-xs text-muted-foreground">Caps Lock is on</p>
+                ) : null}
+                {errors.password ? (
+                  <p className="text-sm text-destructive">{errors.password}</p>
+                ) : null}
+              </div>
               <div className="flex items-center gap-2">
                 <Checkbox id="remember" checked={remember} onCheckedChange={(v) => setRemember(Boolean(v))} />
                 <Label htmlFor="remember">Remember me</Label>
               </div>
-              <Button
-                type="button"
-                variant="link"
-                className="px-0"
-                onClick={() => toast({ title: 'Forgot password', description: 'Please contact your administrator.' })}
-              >
-                Forgot password?
+              <Button type="submit" className="w-full" disabled={loading} aria-busy={loading}>
+                {loading ? (
+                  <span className="inline-flex items-center gap-2">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Login
+                  </span>
+                ) : (
+                  'Login'
+                )}
               </Button>
-            </div>
-            <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? (
-                <span className="inline-flex items-center gap-2">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Signing in
-                </span>
-              ) : (
-                'Sign In'
-              )}
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
+            </form>
+          </div>
+        </div>
+      </div>
+      <div className="bg-muted relative hidden lg:block">
+        <img
+          src="/placeholder.svg"
+          alt="Cover"
+          className="absolute inset-0 h-full w-full object-cover dark:brightness-[0.2] dark:grayscale"
+        />
+      </div>
     </div>
   );
 };
