@@ -2,8 +2,11 @@ import React, { useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { useNavigate } from "react-router-dom";
+import { Eye, EyeOff, Loader2, Lock } from "lucide-react";
 
 const Login: React.FC = () => {
   const { toast } = useToast();
@@ -11,14 +14,28 @@ const Login: React.FC = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [remember, setRemember] = useState(false);
+  const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
+
+  const validate = () => {
+    const nextErrors: { email?: string; password?: string } = {};
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail) nextErrors.email = "Email is required";
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) nextErrors.email = "Enter a valid email";
+    if (!password) nextErrors.password = "Password is required";
+    setErrors(nextErrors);
+    return Object.keys(nextErrors).length === 0;
+  };
 
   const onSubmit = async () => {
     setLoading(true);
     try {
+      if (!validate()) return;
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email: email.trim(), password, remember }),
         credentials: 'include'
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -38,26 +55,85 @@ const Login: React.FC = () => {
     <div className="min-h-screen flex items-center justify-center px-4">
       <Card className="w-full max-w-md">
         <CardHeader>
-          <CardTitle>Sign In</CardTitle>
-          <CardDescription>Enter your email and password to continue</CardDescription>
+          <div className="flex items-center gap-2">
+            <div className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-primary text-primary-foreground">
+              <Lock className="h-5 w-5" />
+            </div>
+            <div>
+              <CardTitle>Sign In</CardTitle>
+              <CardDescription>Access your dashboard</CardDescription>
+            </div>
+          </div>
         </CardHeader>
         <CardContent className="space-y-4">
           <form
             onSubmit={(e) => {
               e.preventDefault();
-              if (!loading && email && password) onSubmit();
+              if (!loading) onSubmit();
             }}
             className="space-y-4"
           >
-            <div>
-              <label className="text-sm font-medium">Email</label>
-              <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+            <div className="space-y-2">
+              <Label htmlFor="email">Email</Label>
+              <Input
+                id="email"
+                type="email"
+                autoComplete="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+              {errors.email ? (
+                <p className="text-sm text-destructive">{errors.email}</p>
+              ) : null}
             </div>
-            <div>
-              <label className="text-sm font-medium">Password</label>
-              <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+            <div className="space-y-2">
+              <Label htmlFor="password">Password</Label>
+              <div className="relative">
+                <Input
+                  id="password"
+                  type={showPassword ? 'text' : 'password'}
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowPassword((v) => !v)}
+                  className="absolute right-1.5 top-1.5 h-7 w-9 px-0"
+                >
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </Button>
+              </div>
+              {errors.password ? (
+                <p className="text-sm text-destructive">{errors.password}</p>
+              ) : null}
             </div>
-            <Button type="submit" className="w-full" disabled={loading || !email || !password}>{loading ? 'Signing in…' : 'Sign In'}</Button>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Checkbox id="remember" checked={remember} onCheckedChange={(v) => setRemember(Boolean(v))} />
+                <Label htmlFor="remember">Remember me</Label>
+              </div>
+              <Button
+                type="button"
+                variant="link"
+                className="px-0"
+                onClick={() => toast({ title: 'Forgot password', description: 'Please contact your administrator.' })}
+              >
+                Forgot password?
+              </Button>
+            </div>
+            <Button type="submit" className="w-full" disabled={loading}>
+              {loading ? (
+                <span className="inline-flex items-center gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Signing in
+                </span>
+              ) : (
+                'Sign In'
+              )}
+            </Button>
           </form>
         </CardContent>
       </Card>
