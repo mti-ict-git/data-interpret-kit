@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -19,6 +19,7 @@ const Login: React.FC = () => {
   const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
   const [serverError, setServerError] = useState<string | null>(null);
   const [capsLock, setCapsLock] = useState(false);
+  const coverImgRef = useRef<HTMLImageElement | null>(null);
 
   const validate = () => {
     const nextErrors: { email?: string; password?: string } = {};
@@ -54,6 +55,21 @@ const Login: React.FC = () => {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    const el = coverImgRef.current;
+    if (!el) return;
+    const prevSrc = el.getAttribute("src") || "";
+    const handleError = () => {
+      el.setAttribute("src", "/placeholder.svg");
+    };
+    el.addEventListener("error", handleError);
+    el.setAttribute("src", "/wallpaperflare.com_wallpaper.jpg");
+    return () => {
+      el.removeEventListener("error", handleError);
+      el.setAttribute("src", prevSrc);
+    };
+  }, []);
 
   return (
     <div className="grid min-h-svh lg:grid-cols-2">
@@ -164,6 +180,7 @@ const Login: React.FC = () => {
       </div>
       <div className="bg-muted relative hidden lg:block">
         <img
+          ref={coverImgRef}
           src="/placeholder.svg"
           alt="Cover"
           className="absolute inset-0 h-full w-full object-cover dark:brightness-[0.2] dark:grayscale"
