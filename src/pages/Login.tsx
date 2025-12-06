@@ -4,7 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Eye, EyeOff, Loader2, GalleryVerticalEnd, Mail } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
@@ -60,11 +60,25 @@ const Login: React.FC = () => {
     const el = coverImgRef.current;
     if (!el) return;
     const prevSrc = el.getAttribute("src") || "";
+    const candidates = [
+      "/images/auth/wallpaperflare.com_wallpaper.jpg",
+      "/images/wallpaperflare.com_wallpaper.jpg",
+      "/login-cover.jpg",
+      "/wallpaperflare.com_wallpaper.jpg",
+      "/placeholder.svg",
+    ];
+    let idx = 0;
+
     const handleError = () => {
-      el.setAttribute("src", "/placeholder.svg");
+      if (idx < candidates.length - 1) {
+        idx += 1;
+        el.setAttribute("src", candidates[idx]);
+      }
     };
+
     el.addEventListener("error", handleError);
-    el.setAttribute("src", "/wallpaperflare.com_wallpaper.jpg");
+    el.setAttribute("src", candidates[idx]);
+
     return () => {
       el.removeEventListener("error", handleError);
       el.setAttribute("src", prevSrc);
@@ -174,6 +188,13 @@ const Login: React.FC = () => {
                   'Login'
                 )}
               </Button>
+              <p className="text-xs text-muted-foreground text-center">
+                By clicking continue, you agree to our
+                {' '}
+                <Link to="/terms" className="underline underline-offset-4">Terms of Service</Link>
+                {' '}and{' '}
+                <Link to="/privacy" className="underline underline-offset-4">Privacy Policy</Link>.
+              </p>
             </form>
           </div>
         </div>

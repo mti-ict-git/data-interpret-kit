@@ -2,6 +2,15 @@ import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Link, useLocation } from "react-router-dom";
 import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from "@/components/ui/breadcrumb";
+import { Separator } from "@/components/ui/separator";
+import {
   SidebarProvider,
   Sidebar,
   SidebarHeader,
@@ -54,6 +63,15 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ title, children }) => {
       toast({ title: 'Logout failed', description: msg, variant: 'destructive' });
     }
   };
+
+  const routeLabels: Record<string, string> = {
+    "/card-processor": "ID Card Processor",
+    "/register-vault": "Register Vault",
+    "/update-vault": "Update Vault Card",
+    "/users": "User Management",
+    "/activity-log": "Activity Log",
+  };
+  const pageLabel = routeLabels[location.pathname] || title || "Dashboard";
 
   return (
     <SidebarProvider>
@@ -114,9 +132,20 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ title, children }) => {
       </Sidebar>
 
       <SidebarInset>
-        <header className={cn("flex items-center gap-2 px-4 py-3 border-b")}> 
-          <SidebarTrigger />
-          <h1 className="text-lg font-semibold">{title}</h1>
+        <header className={cn("bg-background sticky top-0 flex h-16 shrink-0 items-center gap-2 border-b px-4")}> 
+          <SidebarTrigger className="-ml-1" />
+          <Separator orientation="vertical" className="mr-2 h-4" />
+          <Breadcrumb>
+            <BreadcrumbList>
+              <BreadcrumbItem className="hidden md:block">
+                <BreadcrumbLink href="/">Home</BreadcrumbLink>
+              </BreadcrumbItem>
+              <BreadcrumbSeparator className="hidden md:block" />
+              <BreadcrumbItem>
+                <BreadcrumbPage>{pageLabel}</BreadcrumbPage>
+              </BreadcrumbItem>
+            </BreadcrumbList>
+          </Breadcrumb>
           <div className="ml-auto flex items-center gap-3">
             {currentUser && (
               <span className="text-sm text-muted-foreground">{currentUser.name || 'User'} ({currentUser.role})</span>
