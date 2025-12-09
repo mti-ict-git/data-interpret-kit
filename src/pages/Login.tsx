@@ -5,7 +5,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { Link, useNavigate } from "react-router-dom";
-import { Eye, EyeOff, Loader2, GalleryVerticalEnd, Mail } from "lucide-react";
+import { Loader2, GalleryVerticalEnd, Mail } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 const Login: React.FC = () => {
@@ -14,7 +14,6 @@ const Login: React.FC = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
   const [remember, setRemember] = useState(false);
   const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
   const [serverError, setServerError] = useState<string | null>(null);
@@ -61,10 +60,8 @@ const Login: React.FC = () => {
     if (!el) return;
     const prevSrc = el.getAttribute("src") || "";
     const candidates = [
-      "/images/auth/wallpaperflare.com_wallpaper.jpg",
       "/images/wallpaperflare.com_wallpaper.jpg",
-      "/login-cover.jpg",
-      "/wallpaperflare.com_wallpaper.jpg",
+      "/images/auth/wallpaperflare.com_wallpaper.jpg",
       "/placeholder.svg",
     ];
     let idx = 0;
@@ -134,38 +131,19 @@ const Login: React.FC = () => {
                 ) : null}
               </div>
               <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="password">Password</Label>
-                  <Button
-                    type="button"
-                    variant="link"
-                    className="px-0"
-                    onClick={() => toast({ title: 'Forgot password', description: 'Please contact your administrator.' })}
-                  >
-                    Forgot your password?
-                  </Button>
-                </div>
+                <Label htmlFor="password">Password</Label>
                 <div className="relative">
                   <Input
                     id="password"
-                    type={showPassword ? 'text' : 'password'}
+                    type={'password'}
                     autoComplete="current-password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     onKeyDown={(e) => setCapsLock(e.getModifierState('CapsLock'))}
                     onKeyUp={(e) => setCapsLock(e.getModifierState('CapsLock'))}
-                    className={errors.password ? "pr-11 border-destructive focus-visible:ring-destructive" : "pr-11"}
+                    className={errors.password ? "border-destructive focus-visible:ring-destructive" : undefined}
                     aria-invalid={Boolean(errors.password)}
                   />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setShowPassword((v) => !v)}
-                    className="absolute right-1.5 top-1.5 h-7 w-9 px-0"
-                  >
-                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </Button>
                 </div>
                 {capsLock ? (
                   <p className="text-xs text-muted-foreground">Caps Lock is on</p>
