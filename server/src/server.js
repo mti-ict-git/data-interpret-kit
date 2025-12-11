@@ -710,7 +710,11 @@ app.get('/api/vault/carddb', async (req, res) => {
             }
             const qualified = bracketize(`${info.schema}.${info.table}`);
             const hasDel = info.columns.has('Del_State');
-            const searchable = ['Name','CardNo','cardno','StaffNo','staffno'].filter(c => info.columns.has(c));
+            const searchable = [
+                'Name','CardNo','cardno','StaffNo','staffno',
+                // Add department-related columns to support filtering by department in UI
+                'Department','DEPT','DepartmentName'
+            ].filter(c => info.columns.has(c));
             const whereTerms = [];
             if (sTerm && searchable.length > 0) {
                 request.input('pattern', sql.NVarChar, `%${sTerm}%`);
